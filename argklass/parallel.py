@@ -1,6 +1,5 @@
 import concurrent.futures
 
-
 executor = concurrent.futures.ThreadPoolExecutor()
 
 

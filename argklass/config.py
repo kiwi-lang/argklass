@@ -3,8 +3,8 @@ from typing import Any
 
 import hjson
 
-from .group import _getattr
 from .argformat import ArgumentFormaterBase
+from .groupargs import _getattr
 
 
 class ArgumentConfig(ArgumentFormaterBase):
@@ -94,7 +94,7 @@ class ArgumentConfig(ArgumentFormaterBase):
 
         if self.args is not None:
             # Selected command from command line
-            selected = _getattr(self.arggroup, action.dest, selected)  #  #  #
+            selected = _getattr(self.arggroup, action.dest, selected)  #
 
             # update selection
             self.current[action.dest] = selected
@@ -123,7 +123,7 @@ class ArgumentConfig(ArgumentFormaterBase):
             # Fetch the value inside the config
             value2 = self.current.get(name)
 
-            # Overriden default in commandline
+            # Overridden default in commandline
             value3 = _getattr(self.arggroup, name, None)
 
             value = value3 or value2 or value1

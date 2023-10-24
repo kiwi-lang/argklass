@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import dataclasses
 import enum
 import typing
+from copy import deepcopy
 from dataclasses import MISSING, fields, is_dataclass
 from typing import get_type_hints
 
 from .docstring import DocstringIterator
-
 
 forward_refs_to_types = {
     "tuple": typing.Tuple,
@@ -492,8 +491,8 @@ class ArgumentParser(argparse.ArgumentParser):
         return config
 
     def parse_args(self, *args, config=None, **kwargs):
-        from .group import group_by_dataclass
         from .config import ArgumentConfig
+        from .groupargs import group_by_dataclass
 
         args = super().parse_args(*args, **kwargs)
 

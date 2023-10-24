@@ -1,11 +1,11 @@
-import importlib
-import pkgutil
 import glob
+import importlib
 import os
+import pkgutil
 import traceback
 
-from .parallel import submit, as_completed
 from .cache import cache_to_local
+from .parallel import as_completed, submit
 
 
 def discover_plugins_simple(module):

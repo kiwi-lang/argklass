@@ -1,6 +1,6 @@
-from dataclasses import dataclass
 import inspect
 import re
+from dataclasses import dataclass
 
 
 @dataclass

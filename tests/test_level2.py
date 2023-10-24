@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
 from enum import Enum
-from argklass import argument, ArgumentParser, subparsers, choice
+from typing import List, Optional, Tuple, Union
 
-from argklass.arguments import is_list, is_optional, is_tuple, is_enum
+from argklass import ArgumentParser, argument, choice, subparsers
+from argklass.arguments import is_enum, is_list, is_optional, is_tuple
 
 
 class Color(Enum):
@@ -37,7 +37,7 @@ class MyArguments:
     f: Optional[int] = None  # Optional
     p: Tuple[int, int] = (1, 1)  # help p
     g: Color = Color.RED  # help g
-    s: SubArgs = SubArgs  # "helps group"
+    s: SubArgs = SubArgs()  # "helps group"
     cmd: Union[cmd1, cmd2] = subparsers(cmd1=cmd1, cmd2=cmd2)
 
 

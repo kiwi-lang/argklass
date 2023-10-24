@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
 from enum import Enum
-from argklass import argument, ArgumentParser, group, subparsers
+from typing import List, Optional, Tuple, Union
 
-from argklass.arguments import is_list, is_optional, is_tuple, is_enum
+from argklass import ArgumentParser, argument, group, subparsers
+from argklass.arguments import is_enum, is_list, is_optional, is_tuple
 
 
 class Color(Enum):

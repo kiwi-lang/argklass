@@ -34,7 +34,10 @@ if __name__ == "__main__":
             "argklass",
         ],
         setup_requires=["setuptools"],
-        install_requires=["importlib_resources"],
+        install_requires=[
+            "importlib_resources",
+            "hjson",
+        ],
         package_data={
             "argklass.data": [
                 "argklass/data",
