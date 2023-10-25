@@ -17,8 +17,8 @@ argklass
 .. |docs| image:: https://readthedocs.org/projects/argklass/badge/?version=latest
    :target:  https://argklass.readthedocs.io/en/latest/?badge=latest
 
-.. |tests| image:: https://github.com/Delaunay/argklass/actions/workflows/test.yml/badge.svg?branch=master
-   :target: https://github.com/Delaunay/argklass/actions/workflows/test.yml
+.. |tests| image:: https://github.com/Delaunay/argklass/actions/workflows/tests.yml/badge.svg?branch=master
+   :target: https://github.com/Delaunay/argklass/actions/workflows/tests.yml
 
 .. |style| image:: https://github.com/Delaunay/argklass/actions/workflows/style.yml/badge.svg?branch=master
    :target: https://github.com/Delaunay/argklass/actions/workflows/style.yml
