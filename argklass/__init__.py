@@ -1,5 +1,5 @@
 __descr__ = "Argparse utility"
-__version__ = "1.0.3"
+__version__ = "1.1.0"
 __license__ = "BSD 3-Clause License"
 __author__ = "Pierre Delaunay"
 __author_email__ = "pierre@delaunay.io"

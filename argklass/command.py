@@ -32,7 +32,78 @@ def chdir(root):
     os.chdir(old)
 
 
-class Command:
+#
+# The problem with this way of registering command is that it is too
+# automatic and it might be hard to guarantee that the command tree is going to be
+# made correctly
+#
+#   What if the command is imported before the parent
+#   and the parent does not call subcmd()
+#
+#   see gamekit/marketing/template 
+#   which is not correctly formed
+#
+class _Registry2:
+    def __init__(self) -> None:
+        self.commands = []
+        self.cmdmap = dict()
+        self.stack = []
+
+    def add_command(self, cmd):
+        return
+    
+        if not hasattr(cmd, 'name'):
+            return
+        
+        key = tuple([cmd.name for cmd in self.stack] + [cmd.name])
+        self.commands.append(cmd)
+
+        assert key not in self.cmdmap, f"{key} already exists"
+        self.cmdmap[key] = cmd
+
+    @contextmanager
+    def subcmd(self, cmd):
+        self.stack.append(cmd)
+        yield
+        self.stack.pop()
+
+    @property
+    def depth(self):
+        return len(self.stack)
+    
+
+__registry = _Registry2()
+
+
+def commands():
+    return __registry
+
+
+def register_command(cls):
+    if cls.__module__ is __name__:
+        return
+
+    __registry.add_command(cls)
+
+
+@contextmanager
+def _nested_register(cls):
+    with __registry.subcmd(cls):
+        yield
+
+
+def command(cls):
+    register_command(cls)
+    return cls
+
+
+class CommandMeta(type):
+    def __init__(cls, name, bases, attrs):
+        super().__init__(name, bases, attrs)
+        register_command(cls)
+
+
+class Command(metaclass=CommandMeta):
     """Base class for all commands"""
 
     name: str
@@ -87,9 +158,10 @@ class ParentCommand(Command):
         parser = newparser(subparsers, cls)
         cls.shared_arguments(parser)
         subparsers = parser.add_subparsers(dest=cls.command_field(), help=cls.help())
-
-        cmds = cls.fetch_commands()
-        cls.register(cls, subparsers, cmds)
+        
+        with _nested_register(cls):
+            cmds = cls.fetch_commands()
+            cls.register(cls, subparsers, cmds)
 
         ParentCommand.depth -= 1
 
