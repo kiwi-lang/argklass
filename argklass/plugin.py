@@ -184,7 +184,8 @@ def discover_module_commands_no_cache(module, plugin_module=None):
     return registry
 
 
-@cache_to_local("commands")
 def discover_module_commands(module, plugin_module=None):
     """Discover all the commands we can find (plugins and built-in)"""
-    return discover_module_commands_no_cache(module, plugin_module)
+    cached_call = cache_to_local("commands", module.__name__)(discover_module_commands_no_cache)
+
+    return cached_call(module, plugin_module)
