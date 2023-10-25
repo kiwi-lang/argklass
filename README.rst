@@ -11,17 +11,17 @@ argklass
     :target: https://pypi.python.org/pypi/argklass
     :alt: Supported Python Versions
 
-.. |codecov| image:: https://codecov.io/gh/Delaunay/argklass/branch/master/graph/badge.svg?token=40Cr8V87HI
-   :target: https://codecov.io/gh/Delaunay/argklass
+.. |codecov| image:: https://codecov.io/gh/kiwi-lang/argklass/branch/master/graph/badge.svg?token=40Cr8V87HI
+   :target: https://codecov.io/gh/kiwi-lang/argklass
 
 .. |docs| image:: https://readthedocs.org/projects/argklass/badge/?version=latest
    :target:  https://argklass.readthedocs.io/en/latest/?badge=latest
 
-.. |tests| image:: https://github.com/Delaunay/argklass/actions/workflows/tests.yml/badge.svg?branch=master
-   :target: https://github.com/Delaunay/argklass/actions/workflows/tests.yml
+.. |tests| image:: https://github.com/kiwi-lang/argklass/actions/workflows/test.yml/badge.svg
+   :target: https://github.com/kiwi-lang/argklass/actions/workflows/test.yml
 
-.. |style| image:: https://github.com/Delaunay/argklass/actions/workflows/style.yml/badge.svg?branch=master
-   :target: https://github.com/Delaunay/argklass/actions/workflows/style.yml
+.. |style| image:: https://github.com/kiwi-lang/argklass/actions/workflows/style.yml/badge.svg?branch=master
+   :target: https://github.com/kiwi-lang/argklass/actions/workflows/style.yml
 
 
 .. code-block:: bash
