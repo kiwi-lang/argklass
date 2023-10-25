@@ -55,6 +55,7 @@ def discover_plugin_commands_no_cache(module):
             commands = getattr(module, "COMMANDS")
 
             if not isinstance(commands, list):
+                _norm_name(commands, module.__file__)
                 commands = [commands]
 
             all_commands.extend(commands)
@@ -66,6 +67,19 @@ def discover_plugin_commands(module):
     cached_call = cache_to_local(module.__name__, module.__name__)(discover_plugin_commands_no_cache)
     return cached_call(module)
 
+
+def _norm_name(cls, module_path):
+    _, tail = os.path.split(module_path)
+    cmd = tail.replace('.py', '')
+
+    if isinstance(cls, list):
+        return cls
+    
+    if not hasattr(cls, 'name'):
+        cls.name = cmd
+
+    return cls
+    
 
 def _resolve_factory_module(base_file_name, base_module, function_name, module_path):
     module_file = module_path.split(os.sep)[-1]
@@ -81,7 +95,7 @@ def _resolve_factory_module(base_file_name, base_module, function_name, module_p
         module = __import__(path, fromlist=[""])
 
         if hasattr(module, function_name):
-            return getattr(module, function_name)
+            return _norm_name(getattr(module, function_name), module_path)
 
     except ImportError:
         print(traceback.format_exc())
@@ -136,6 +150,7 @@ def discover_from_plugins_commands(registry, module, function_name="COMMANDS"):
     for _, plugin in plugins.items():
         if hasattr(plugin, function_name):
             plugin_commands = getattr(plugin, function_name)
+            
             registry.insert_commands(plugin_commands)
 
 
@@ -151,7 +166,9 @@ class CommandRegistry:
         if not isinstance(cmds, list):
             cmds = [cmds]
 
-        for cmd in cmds:
+        for cmdcls in cmds:
+            cmd = cmdcls()
+        
             if cmd.name != cmd.name.strip():
                 print(f"Warning: {cmd.name} has white space before or after the name")
 
