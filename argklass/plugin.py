@@ -46,7 +46,7 @@ def discover_plugins(module):
     return discover_plugins_parallel(module)
 
 
-def _discover_plugin_commands(module):
+def discover_plugin_commands_no_cache(module):
     modules = discover_plugins(module)
     all_commands = []
 
@@ -63,7 +63,7 @@ def _discover_plugin_commands(module):
 
 
 def discover_plugin_commands(module):
-    cached_call = cache_to_local(module.__name__)(_discover_plugin_commands)
+    cached_call = cache_to_local(module.__name__, module.__name__)(discover_plugin_commands_no_cache)
     return cached_call(module)
 
 
@@ -171,8 +171,7 @@ class CommandRegistry:
         self.found_commands = {k: v for k, v in d}
 
 
-@cache_to_local("commands")
-def discover_module_commands(module, plugin_module=None):
+def discover_module_commands_no_cache(module, plugin_module=None):
     """Discover all the commands we can find (plugins and built-in)"""
     registry = CommandRegistry()
 
@@ -183,3 +182,9 @@ def discover_module_commands(module, plugin_module=None):
 
     registry.fix_nondeterminism()
     return registry
+
+
+@cache_to_local("commands")
+def discover_module_commands(module, plugin_module=None):
+    """Discover all the commands we can find (plugins and built-in)"""
+    return discover_module_commands_no_cache(module, plugin_module)
