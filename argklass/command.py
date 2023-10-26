@@ -116,6 +116,9 @@ class Command(metaclass=CommandMeta):
     @classmethod
     def argument_class(cls):
         return cls.Arguments
+    
+    def __call__(self, args) -> int:
+        return self.execute(args)
 
     @classmethod
     def arguments(cls, subparsers):
@@ -179,11 +182,15 @@ class ParentCommand(Command):
     @staticmethod
     def register(cls, subsubparsers, commands):
         name = cls.module().__name__
-        for cmd in commands:
-            cmd.arguments(subsubparsers)
-            assert (name, cmd.name) not in cls.dispatch
-            cls.dispatch[(name, cmd.name)] = cmd
+        for cmdcls in commands:
+            cmdcls.arguments(subsubparsers)
+            assert (name, cmdcls.name) not in cls.dispatch
+            cls.dispatch[(name, cmdcls.name)] = cmdcls()
 
+    @classmethod
+    def __call__(cls, args) -> int:
+        return cls.execute(args)
+    
     @classmethod
     def execute(cls, args):
         cmd = cls.module().__name__
