@@ -3,6 +3,8 @@ import importlib
 import os
 import pkgutil
 import traceback
+from contextlib import contextmanager
+from typing import Any
 
 from .cache import cache_to_local
 from .parallel import as_completed, submit
@@ -61,11 +63,6 @@ def discover_plugin_commands_no_cache(module):
             all_commands.extend(commands)
 
     return all_commands
-
-
-def discover_plugin_commands(module):
-    cached_call = cache_to_local(module.__name__, module.__name__)(discover_plugin_commands_no_cache)
-    return cached_call(module)
 
 
 def _norm_name(cls, module_path):
@@ -201,8 +198,54 @@ def discover_module_commands_no_cache(module, plugin_module=None):
     return registry
 
 
-def discover_module_commands(module, plugin_module=None):
-    """Discover all the commands we can find (plugins and built-in)"""
-    cached_call = cache_to_local("commands", module.__name__)(discover_module_commands_no_cache)
+def discover_plugin(location=None):
+    def _(module):
+        nonlocal location
 
-    return cached_call(module, plugin_module)
+        if location is None:
+            location = module.__name__
+        
+        cached_call = cache_to_local(module.__name__, location)(discover_plugin_commands_no_cache)
+        return cached_call(module)
+    return _
+
+
+
+def discover_module(location=None):
+    def _(module, plugin_module=None):
+        nonlocal location
+
+        if location is None:
+            location = module.__name__
+        
+        cached_call = cache_to_local("commands", location)(discover_module_commands_no_cache)
+        return cached_call(module, plugin_module)
+
+    return _
+
+
+class CallRef:
+    def __init__(self, original) -> None:
+        self.call = original
+
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        return self.call(*args, *kwds)
+
+
+discover_plugin_commands = CallRef(discover_plugin())
+discover_module_commands = CallRef(discover_module())
+
+
+@contextmanager
+def with_cache_location(location):
+    global discover_plugin_commands, discover_module_commands
+    old_plugin = discover_plugin_commands.call
+    old_module = discover_module_commands.call
+
+    discover_plugin_commands.call = discover_plugin(location)
+    discover_module_commands.call = discover_module(location)
+
+    yield
+
+    discover_plugin_commands.call = old_plugin
+    discover_module_commands.call = old_module
