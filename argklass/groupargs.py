@@ -98,7 +98,6 @@ class GroupArguments(ArgumentFormaterBase):
 
     def format_group(self, group: argparse._ArgumentGroup, depth: int):
         for action in group._group_actions:
-
             if isinstance(action, argparse._SubParsersAction):
                 if self.format_subparser(action, depth):
                     return

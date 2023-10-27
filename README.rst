@@ -36,6 +36,12 @@ Compact argparse definition
 
 .. code-block:: python
 
+   def workdir():
+      d = os.getcwd()
+      if os.access(d, os.W_OK):
+         return d
+      return None
+
    @dataclass
    class MyArguments:
       a  : str                                                    # Positional
@@ -48,7 +54,8 @@ Compact argparse definition
       g  : Color              = Color.RED                         # help g
       s  : SubArgs            = SubArgs                           # helps group
       cmd: Union[cmd1, cmd2]  = subparsers(cmd1=cmd1, cmd2=cmd2)  # Command subparser
-
+      de : str                = deduceable(workdir)
+      
    parser = ArgumentParser()
    parser.add_arguments(MyArguments)
    args = parser.parse_args()

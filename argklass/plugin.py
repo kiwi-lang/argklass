@@ -67,29 +67,29 @@ def discover_plugin_commands_no_cache(module):
 
 def _norm_name(cls, module_path):
     _, tail = os.path.split(module_path)
-    cmd = tail.replace('.py', '')
+    cmd = tail.replace(".py", "")
 
     if isinstance(cls, list):
         return cls
-    
-    if not hasattr(cls, 'name'):
+
+    if not hasattr(cls, "name"):
         cls.name = cmd
 
     return cls
-    
+
 
 def _norm_name(cls, module_path):
     _, tail = os.path.split(module_path)
-    cmd = tail.replace('.py', '')
+    cmd = tail.replace(".py", "")
 
     if isinstance(cls, list):
         return cls
-    
-    if not hasattr(cls, 'name'):
+
+    if not hasattr(cls, "name"):
         cls.name = cmd
 
     return cls
-    
+
 
 def _resolve_factory_module(base_file_name, base_module, function_name, module_path):
     module_file = module_path.split(os.sep)[-1]
@@ -141,7 +141,6 @@ def fetch_factories_single(
     for module_path in glob.glob(
         os.path.join(module_path, "[A-Za-z]*"), recursive=False
     ):
-
         cmd = _resolve_factory_module(
             base_file_name, base_module, function_name, module_path
         )
@@ -160,7 +159,7 @@ def discover_from_plugins_commands(registry, module, function_name="COMMANDS"):
     for _, plugin in plugins.items():
         if hasattr(plugin, function_name):
             plugin_commands = getattr(plugin, function_name)
-            
+
             registry.insert_commands(plugin_commands)
 
 
@@ -178,7 +177,7 @@ class CommandRegistry:
 
         for cmdcls in cmds:
             cmd = cmdcls()
-        
+
             if cmd.name != cmd.name.strip():
                 print(f"Warning: {cmd.name} has white space before or after the name")
 
@@ -217,11 +216,13 @@ def discover_plugin(location=None):
 
         if location is None:
             location = module.__name__
-        
-        cached_call = cache_to_local(module.__name__, location)(discover_plugin_commands_no_cache)
-        return cached_call(module)
-    return _
 
+        cached_call = cache_to_local(module.__name__, location)(
+            discover_plugin_commands_no_cache
+        )
+        return cached_call(module)
+
+    return _
 
 
 def discover_module(location=None):
@@ -230,8 +231,10 @@ def discover_module(location=None):
 
         if location is None:
             location = module.__name__
-        
-        cached_call = cache_to_local("commands", location)(discover_module_commands_no_cache)
+
+        cached_call = cache_to_local("commands", location)(
+            discover_module_commands_no_cache
+        )
         return cached_call(module, plugin_module)
 
     return _

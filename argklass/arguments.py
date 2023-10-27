@@ -88,6 +88,19 @@ def argument(
     )
 
 
+def deduceable(default, vtype=None, required=True, **kwargs):
+    kwargs["_kind"] = "argument"
+
+    value = default()
+    if value is not None:
+        kwargs["default"] = value
+        kwargs["type"] = vtype or type(value)
+    else:
+        kwargs["required"] = required
+
+    return dataclasses.field(default=value, metadata=kwargs)
+
+
 def group(default, help=None, **kwargs):
     # argparse.ArgumentParser().add_argument_group()
     kwargs["_kind"] = "group"

@@ -40,7 +40,7 @@ def chdir(root):
 #   What if the command is imported before the parent
 #   and the parent does not call subcmd()
 #
-#   see gamekit/marketing/template 
+#   see gamekit/marketing/template
 #   which is not correctly formed
 #
 class _Registry2:
@@ -51,10 +51,10 @@ class _Registry2:
 
     def add_command(self, cmd):
         return
-    
-        if not hasattr(cmd, 'name'):
+
+        if not hasattr(cmd, "name"):
             return
-        
+
         key = tuple([cmd.name for cmd in self.stack] + [cmd.name])
         self.commands.append(cmd)
 
@@ -70,7 +70,7 @@ class _Registry2:
     @property
     def depth(self):
         return len(self.stack)
-    
+
 
 __registry = _Registry2()
 
@@ -116,7 +116,7 @@ class Command(metaclass=CommandMeta):
     @classmethod
     def argument_class(cls):
         return cls.Arguments
-    
+
     def __call__(self, args) -> int:
         return self.execute(args)
 
@@ -161,7 +161,7 @@ class ParentCommand(Command):
         parser = newparser(subparsers, cls)
         cls.shared_arguments(parser)
         subparsers = parser.add_subparsers(dest=cls.command_field(), help=cls.help())
-        
+
         with _nested_register(cls):
             cmds = cls.fetch_commands()
             cls.register(cls, subparsers, cmds)
@@ -190,7 +190,7 @@ class ParentCommand(Command):
     @classmethod
     def __call__(cls, args) -> int:
         return cls.execute(args)
-    
+
     @classmethod
     def execute(cls, args):
         cmd = cls.module().__name__

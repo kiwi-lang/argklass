@@ -101,7 +101,6 @@ class ArgumentConfig(ArgumentFormaterBase):
             vars(self.arggroup)[action.dest] = selected
 
         for name, choice in action.choices.items():
-
             if self.group_by_parser:
                 self.new_group(name)
 
