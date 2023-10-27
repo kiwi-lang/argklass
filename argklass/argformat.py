@@ -3,7 +3,7 @@ import textwrap
 from typing import Any
 
 
-class ArgumentFormaterBase:
+class ArgumentParserIterator:
     def __init__(self) -> None:
         self.group_increase_indent = False
         self.show_groups = True
@@ -72,6 +72,8 @@ class ArgumentFormaterBase:
         line = f"{'  ' * depth} {name:<{self.column(depth)}} {type(action).__name__}"
         self.print(line)
 
+
+ArgumentFormaterBase = ArgumentParserIterator
 
 class ArgumentFormater(ArgumentFormaterBase):
     def __init__(self) -> None:

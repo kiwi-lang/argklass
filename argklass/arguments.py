@@ -302,6 +302,7 @@ def deduce_add_arguments(field, docstring):
     choices = None
     if field.metadata:
         choices = field.metadata.get("choices")
+        required = False
 
     positional = False
     if default is MISSING:
