@@ -479,6 +479,9 @@ class ArgumentParser(argparse.ArgumentParser):
         self.group_by_dataclass: bool = group_by_dataclass
         self.dataclass = dataclass
 
+        if self.dataclass is not argparse.Namespace:
+            self.add_arguments(self.dataclass, create_group=False)
+
     def add_arguments(self, dataclass, dest=None, pathname=False, create_group=False):
         add_arguments(
             self, dataclass, dest=dest, pathname=pathname, create_group=create_group
