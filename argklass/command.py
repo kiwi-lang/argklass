@@ -115,8 +115,11 @@ class Command(metaclass=CommandMeta):
 
     @classmethod
     def argument_class(cls):
-        return cls.Arguments
-
+        try:
+            return cls.Arguments
+        except AttributeError:
+            return None
+    
     def __call__(self, args) -> int:
         return self.execute(args)
 
@@ -124,7 +127,8 @@ class Command(metaclass=CommandMeta):
     def arguments(cls, subparsers):
         """Define the arguments of this command"""
         parser = newparser(subparsers, cls)
-        add_arguments(parser, cls.argument_class())
+        if argcls := cls.argument_class():
+            add_arguments(parser, argcls)
 
     @staticmethod
     def execute(args) -> int:

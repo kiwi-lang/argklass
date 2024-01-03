@@ -512,6 +512,7 @@ class ArgumentParser(argparse.ArgumentParser):
         from .groupargs import group_by_dataclass
 
         args = super().parse_args(*args, **kwargs)
+        print(args)
 
         grouped = group_by_dataclass(
             self, args, self.group_by_parser, self.group_by_dataclass, self.dataclass

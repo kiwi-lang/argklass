@@ -23,7 +23,7 @@ class GroupArguments(ArgumentFormaterBase):
         self.group_by_parser = False
         self.group_parser_name = "dest"
         self.group_by_dataclass = False
-        self.ignore_default = True
+        self.ignore_default = False
         self.ignore_groups = {"positional arguments", "optional arguments"}
         # because action names with . inside will get grouped
         # we do not know all the time if a group should be created or not
@@ -120,6 +120,8 @@ class GroupArguments(ArgumentFormaterBase):
 
         if self.group_by_parser:
             self.new_group(group_name)
+        else:
+            self.root[action.dest] = key
 
         choice = action.choices[key]
         self(choice, depth + 2)

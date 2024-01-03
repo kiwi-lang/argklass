@@ -1,6 +1,6 @@
 from .argformat import HelpAction
 from .arguments import ArgumentParser
-from .plugin import discover_module_commands
+from .plugin import discover_module_commands, CommandRegistry
 
 
 class CommandLineInterface:
@@ -20,7 +20,12 @@ class CommandLineInterface:
         subparsers = self.parser.add_subparsers(dest="command")
         self.commands = discover_module_commands(module)
 
-        for cmd in self.commands.values():
+        if isinstance(self.commands, CommandRegistry):
+            values = self.commands.found_commands.values()
+        else:
+            values = self.commands.values()
+
+        for cmd in values:
             cmd.arguments(subparsers)
 
     def parse_args(self, *args, **kwargs):
@@ -28,10 +33,12 @@ class CommandLineInterface:
         return self.args
 
     def execute(self, args):
+        print(args)
         cmd = vars(args).pop("command")
 
         if cmd is None:
             self.parser.print_help()
             return
 
-        return self.commands[cmd](args)
+        commands = self.commands.found_commands
+        return commands[cmd](args)
