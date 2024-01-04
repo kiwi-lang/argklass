@@ -78,19 +78,6 @@ def _norm_name(cls, module_path):
     return cls
 
 
-def _norm_name(cls, module_path):
-    _, tail = os.path.split(module_path)
-    cmd = tail.replace(".py", "")
-
-    if isinstance(cls, list):
-        return cls
-
-    if not hasattr(cls, "name"):
-        cls.name = cmd
-
-    return cls
-
-
 def _resolve_factory_module(base_file_name, base_module, function_name, module_path):
     module_file = module_path.split(os.sep)[-1]
 

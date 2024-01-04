@@ -140,7 +140,7 @@ class ArgumentConfig(ArgumentFormaterBase):
 
 
 def apply_defaults(parser, configfile, cls=ArgumentConfig):
-    with open(configfile, "r") as fp:
+    with open(configfile) as fp:
         config = hjson.load(fp)
 
     transform = cls(config)
@@ -159,7 +159,7 @@ def save_defaults(parser, configfile, cls=ArgumentConfig):
 
 
 def apply_config(parser, args, configfile, cls=ArgumentConfig):
-    with open(configfile, "r") as fp:
+    with open(configfile) as fp:
         config = hjson.load(fp)
 
     transform = cls(config, args)

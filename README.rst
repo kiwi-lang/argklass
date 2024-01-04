@@ -43,7 +43,7 @@ Features
       # Folder structure
       project/cli/
       ├── __init__.py         <= empty
-      ├── editor/    
+      ├── editor/
       │   ├── __init__.py     <= ParentCommand(editor)
       │   ├── cook.py         <= Command(cook)
       │   ├── client.py       <= Command(client)
@@ -75,19 +75,19 @@ Features
 
       COMMANDS = Cook
 
-      # 
+      #
       cli = CommandLineInterface(project.cli)
       cli.run()
 
       # or
       cli.run(["editor", "cook", "--help"])
 
-      # 
+      #
       cli editor cook --help
       cli uat localize --help
 
 
-* New Argument format 
+* New Argument format
    * able to show the entire command line interface with all its subparsers
    * new format mirror dataclass syntax
 
@@ -138,7 +138,7 @@ Features
          s  : SubArgs            = SubArgs                           # helps group
          cmd: Union[cmd1, cmd2]  = subparsers(cmd1=cmd1, cmd2=cmd2)  # Command subparser
          de : str                = deduceable(workdir)
-         
+
       parser = ArgumentParser()
       parser.add_arguments(MyArguments)
       args = parser.parse_args()
@@ -200,7 +200,7 @@ Features
 Architecture
 ------------
 
-argklass works by building the argument parser as a tree, adding 
+argklass works by building the argument parser as a tree, adding
 metadata to each nodes when necessary.
 
 One of the core component is ``ArgumentParserIterator`` which traverse the parsing tree.
