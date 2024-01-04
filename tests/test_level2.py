@@ -1,3 +1,4 @@
+import sys
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple, Union
@@ -109,4 +110,8 @@ def test_argparse_grouped(capsys, file_regression):
     all = capsys.readouterr()
     stdout = all.out
     assert stdout != ""
+
+    if sys.version_info.minor == 8:
+        stdout = stdout.replace("--p [P ...]      ", "--p [P [P ...]]  ")
+
     file_regression.check(stdout)

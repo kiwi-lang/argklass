@@ -24,7 +24,11 @@ class GroupArguments(ArgumentFormaterBase):
         self.group_parser_name = "dest"
         self.group_by_dataclass = False
         self.ignore_default = False
-        self.ignore_groups = {"positional arguments", "optional arguments"}
+        self.ignore_groups = {
+            "positional arguments",
+            "optional arguments",
+            "options",
+        }
         # because action names with . inside will get grouped
         # we do not know all the time if a group should be created or not
         self.dest_to_dataclass = dict()

@@ -27,6 +27,7 @@ class ArgumentConfig(ArgumentFormaterBase):
         self.ignore_groups = {
             "positional arguments",
             "optional arguments",
+            "options",
             # "Arguments"
         }
 
