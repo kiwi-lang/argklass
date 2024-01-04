@@ -86,8 +86,8 @@ class DocstringIterator:
                 if match := attr_line.match(line):
                     values = match.groupdict()
 
-                    if values["varname"] == field.name:
-                        comment = values["comment"]
+                    if values.get("varname", "") == field.name:
+                        comment = values.get("comment")
                         break
 
                 start += 1
