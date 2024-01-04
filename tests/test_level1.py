@@ -79,7 +79,7 @@ testargs = [
 
 
 def test_argparse(capsys, file_regression):
-    parser = ArgumentParser()
+    parser = ArgumentParser(prog="here")
     parser.add_arguments(MyArguments)
 
     parser.print_help()
@@ -94,7 +94,7 @@ def test_argparse(capsys, file_regression):
 
 
 def test_argparse_grouped(capsys, file_regression):
-    parser = ArgumentParser(group_by_dataclass=True)
+    parser = ArgumentParser(group_by_dataclass=True, prog="here")
     parser.add_arguments(MyArguments, create_group=True)
 
     args = parser.parse_args(testargs)

@@ -1,7 +1,7 @@
 
    None
 
-     usage: pytest [-h] {cmd1,cmd2,sub} ...
+     usage: here [-h] {cmd1,cmd2,sub} ...
 
 
 positional arguments                              

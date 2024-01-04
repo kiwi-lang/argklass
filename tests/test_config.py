@@ -13,7 +13,7 @@ def clean_registry():
 def test_interface_help(clean_registry, capsys, file_regression):
     import clitest
 
-    cli = CommandLineInterface(clitest)
+    cli = CommandLineInterface(clitest, prog="here")
 
     try:
         cli.parse_args(["--help"])
@@ -29,7 +29,7 @@ def test_interface_help(clean_registry, capsys, file_regression):
 def test_interface_command_dispatch(clean_registry, capsys, file_regression):
     import clitest
 
-    cli = CommandLineInterface(clitest)
+    cli = CommandLineInterface(clitest, prog="here")
 
     cli.run(["sub", "cmd1"])
     cli.run(["sub", "cmd2"])
