@@ -78,7 +78,7 @@ testargs = [
 ]
 
 
-def test_argparse():
+def test_argparse(capsys, file_regression):
     parser = ArgumentParser()
     parser.add_arguments(MyArguments)
 
@@ -87,10 +87,20 @@ def test_argparse():
     args = parser.parse_args(testargs)
     print(args)
 
+    all = capsys.readouterr()
+    stdout = all.out
+    assert stdout != ""
+    file_regression.check(stdout)
 
-def test_argparse_grouped():
+
+def test_argparse_grouped(capsys, file_regression):
     parser = ArgumentParser(group_by_dataclass=True)
     parser.add_arguments(MyArguments, create_group=True)
 
     args = parser.parse_args(testargs)
     print(args)
+
+    all = capsys.readouterr()
+    stdout = all.out
+    assert stdout != ""
+    file_regression.check(stdout)

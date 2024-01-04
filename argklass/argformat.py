@@ -33,14 +33,14 @@ class ArgumentParserIterator:
             self.print()
             self.print(f"{'  ' * (depth + 2)} {parser.format_usage()}")
 
-        for group in parser._action_groups:
+        for group in parser._action_groups:  # List[argparse._ArgumentGroup]
             self.format_group(group, depth)
 
             for action in group._group_actions:
                 if isinstance(action, argparse._SubParsersAction):
                     choices = action.choices
 
-                    for name, choice in choices.items():
+                    for name, choice in sorted(choices.items(), key=lambda x: x[0]):
                         self.format_action(action, depth + 1, name=name)
                         self(choice, depth + 2)
                 else:
@@ -74,6 +74,7 @@ class ArgumentParserIterator:
 
 
 ArgumentFormaterBase = ArgumentParserIterator
+
 
 class ArgumentFormater(ArgumentFormaterBase):
     def __init__(self) -> None:
@@ -199,13 +200,28 @@ class HelpActionException(Exception):
 
 
 class HelpAction(argparse._HelpAction):
-    def __init__(self, *args, docstring=None, **kwargs):
+    @classmethod
+    def with_exception(cls, *args, **kwargs):
+        kwargs["use_exception"] = True
+        return cls(*args, **kwargs)
+
+    @classmethod
+    def with_exit(cls, *args, **kwargs):
+        kwargs["use_exception"] = False
+        return cls(*args, **kwargs)
+
+    def __init__(self, *args, docstring=None, use_exception=True, **kwargs):
         super().__init__(*args, **kwargs)
         self.docstring = docstring
+        self.use_exception = use_exception
 
     def __call__(self, parser, namespace, values, option_string=None):
         recursively_show_actions(parser)
-        raise HelpActionException()
+
+        if self.use_exception:
+            raise HelpActionException()
+        else:
+            parser.exit()
 
 
 class DumpParserAction(argparse._HelpAction):

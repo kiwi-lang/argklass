@@ -36,6 +36,57 @@ and extended to build extensive, extendable command line interface without much 
 Features
 --------
 
+* Automatic cli discovery and command plugin
+
+   .. code-block:: bash
+
+      # Folder structure
+      project/cli/
+      ├── __init__.py         <= empty
+      ├── editor/    
+      │   ├── __init__.py     <= ParentCommand(editor)
+      │   ├── cook.py         <= Command(cook)
+      │   ├── client.py       <= Command(client)
+      │   ├── game.py         <= Command(game)
+      │   └── open.py         <= Command(open)
+      └── uat/
+         ├── __init__.py     <= ParentCommand(uat)
+         ├── localize.py     <= Command(localize)
+         └── test.py         <= Command(test)
+
+      #  editor/__init__.py
+      from argklass.command import ParentCommand
+
+      class Editor(ParentCommand):
+         name = "editor"
+
+
+      COMMANDS = Editor
+
+      # cook.py
+      from argklass.command import Command
+
+      class Cook(Command):
+         name = "cook"
+
+         @staticmethod
+         def execute(args) -> int:
+            print("cook")
+
+      COMMANDS = Cook
+
+      # 
+      cli = CommandLineInterface(project.cli)
+      cli.run()
+
+      # or
+      cli.run(["editor", "cook", "--help"])
+
+      # 
+      cli editor cook --help
+      cli uat localize --help
+
+
 * New Argument format 
    * able to show the entire command line interface with all its subparsers
    * new format mirror dataclass syntax
@@ -91,33 +142,6 @@ Features
       parser = ArgumentParser()
       parser.add_arguments(MyArguments)
       args = parser.parse_args()
-
-* Automatic cli discovery and command plugin
-
-   .. code-block:: bash
-
-      # Folder structure
-      cli/
-      ├── __init__.py         <= empty
-      ├── editor/    
-      │   ├── __init__.py     <= ParentCommand(editor)
-      │   ├── cook.py         <= Command(cook)
-      │   ├── client.py       <= Command(client)
-      │   ├── game.py         <= Command(game)
-      │   └── open.py         <= Command(open)
-      └── uat/
-         ├── __init__.py     <= ParentCommand(uat)
-         ├── localize.py     <= Command(localize)
-         └── test.py         <= Command(test)
-
-      # 
-      parser = CommandLineInterface(project.cli)
-      args = parser.parse_args()
-
-      # 
-      cli editor cook --help
-      cli uat localize --help
-
 
 * Save and load arguments from configuration files
 

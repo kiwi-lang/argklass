@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from contextlib import contextmanager
 
 from .argformat import HelpAction
@@ -50,6 +51,7 @@ class _Registry2:
         self.stack = []
 
     def add_command(self, cmd):
+        self.commands.append(cmd)
         return
 
         if not hasattr(cmd, "name"):
@@ -70,6 +72,11 @@ class _Registry2:
     @property
     def depth(self):
         return len(self.stack)
+
+    def clear(self):
+        for cmd in self.commands:
+            if hasattr(cmd, "dispatch"):
+                cmd.dispatch = dict()
 
 
 __registry = _Registry2()
@@ -119,7 +126,7 @@ class Command(metaclass=CommandMeta):
             return cls.Arguments
         except AttributeError:
             return None
-    
+
     def __call__(self, args) -> int:
         return self.execute(args)
 
@@ -148,9 +155,9 @@ class ParentCommand(Command):
     depth: int = 0
     cmddepth: dict() = dict()
 
-    @staticmethod
-    def module():
-        return None
+    @classmethod
+    def module(cls):
+        return sys.modules[cls.__module__]
 
     @classmethod
     def command_field(cls):

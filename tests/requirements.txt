@@ -4,3 +4,4 @@ pytest-timeout
 pytest-cov
 codecov
 coverage
+pytest-regressions

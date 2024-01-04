@@ -1,0 +1,1 @@
+Namespace(cmd='cmd2', cmd2=cmd2(args='str2'), MyArguments=MyArguments(a='positional', b=2, c=True, d=3, e=[1, 2, 3, 4], f=None, p=(1, 2), g=<Color.GREEN: 2>, s=SubArgs(aa='123'), cmd='cmd2'))

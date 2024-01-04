@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import MISSING, fields, is_dataclass
 from typing import get_type_hints
 
+from .cache import wait_cache_update
 from .docstring import DocstringIterator
 
 forward_refs_to_types = {
@@ -462,6 +463,15 @@ def add_arguments(
     return group
 
 
+class ArgumentParsingError(Exception):
+    def __init__(self, parser, message):
+        self.parser = parser
+        self.message = message
+
+    def fail(self):
+        argparse.ArgumentParser.error(self.parser, self.message)
+
+
 class ArgumentParser(argparse.ArgumentParser):
     def __init__(
         self,
@@ -469,6 +479,7 @@ class ArgumentParser(argparse.ArgumentParser):
         group_by_parser: bool = False,
         group_by_dataclass: bool = False,
         dataclass: type = argparse.Namespace,
+        use_exception: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -478,6 +489,7 @@ class ArgumentParser(argparse.ArgumentParser):
         self.group_by_parser: bool = group_by_parser
         self.group_by_dataclass: bool = group_by_dataclass
         self.dataclass = dataclass
+        self.use_exception = use_exception
 
         if self.dataclass is not argparse.Namespace:
             self.add_arguments(self.dataclass, create_group=False)
@@ -511,8 +523,7 @@ class ArgumentParser(argparse.ArgumentParser):
         from .config import ArgumentConfig
         from .groupargs import group_by_dataclass
 
-        args = super().parse_args(*args, **kwargs)
-        print(args)
+        args = cache_aware_parse_args(self, *args, **kwargs)
 
         grouped = group_by_dataclass(
             self, args, self.group_by_parser, self.group_by_dataclass, self.dataclass
@@ -525,6 +536,12 @@ class ArgumentParser(argparse.ArgumentParser):
             transform(self)
 
         return grouped
+
+    def error(self, message):
+        if self.use_exception:
+            raise ArgumentParsingError(self, message)
+        else:
+            super().error(message)
 
 
 def argument_parser(dataclass, *args, title=None, dest=None, **kwargs):
@@ -549,3 +566,26 @@ def parse_known_args(dataclass, *args, title=None, dest=None, **kwargs):
     args, others = p.parse_known_args()
 
     return getattr(args, gp), others
+
+
+def cache_aware_parse_args(parser, *argv, **kwargs):
+    """Parse arguments, on failure wait for the async cache update and try again"""
+    try:
+        return argparse.ArgumentParser.parse_args(parser, *argv, **kwargs)
+
+    except ArgumentParsingError as err:
+        # Argument parsing failed once
+        # maybe the command cache is outdated
+        was_updated = wait_cache_update()
+
+        if not was_updated:
+            # cache was not updated, fail right away
+            err.fail()
+        else:
+            # cache was updated try again
+            try:
+                return argparse.ArgumentParser.parse_args(parser, *argv, **kwargs)
+            except ArgumentParsingError:
+                # Argument parsing failed after update
+                # just fail
+                err.fail()

@@ -1,0 +1,14 @@
+
+   None
+
+     usage: pytest [-h] {cmd1,cmd2,sub} ...
+
+
+positional arguments                              
+  cmd1                                             
+      -h, --help                                   Show help
+  cmd2                                             
+  sub                                              
+      cmd1                                         
+      cmd2                                         
+      cmd3                                         

@@ -1,0 +1,18 @@
+usage: pytest [-h] [--b B] [--c] [--d {0,1,2,3,4}] [--e E [E ...]] [--f [F]] [--p [P ...]] [--g G] [--aa AA] [--cmd CMD] a {cmd1,cmd2} ...
+
+positional arguments:
+  a
+  {cmd1,cmd2}
+
+optional arguments:
+  -h, --help       show this help message and exit
+  --b B            My argument
+  --c              My argument
+  --d {0,1,2,3,4}  choices
+  --e E [E ...]    choices
+  --f [F]          choices
+  --p [P ...]      Optional
+  --g G            help g
+  --aa AA
+  --cmd CMD
+Namespace(a='positional', cmd='cmd2', args='str2', b=2, c=True, d=3, e=[1, 2, 3, 4], f=None, p=(1, 2), g=<Color.GREEN: 2>, aa='432')

@@ -1,10 +1,11 @@
+import enum
 import hashlib
 import os
 import pickle
 
 import importlib_resources
 
-from .parallel import submit
+from .parallel import as_completed, submit
 
 
 def load_resource(path, key):
@@ -23,6 +24,23 @@ thread_futures = dict()
 
 def get_cache_future(cache_key):
     return thread_futures.get(cache_key)
+
+
+class CacheStatus(enum.Enum):
+    NoCache = 0
+    Updated = 1
+    NoChange = 2
+
+
+def wait_cache_update():
+    futures = list(thread_futures.values())
+
+    was_updated = False
+    for result in as_completed(futures):
+        if result.result() == CacheStatus.Updated:
+            was_updated = True
+
+    return was_updated
 
 
 def get_cache_status(cache_key):
@@ -59,12 +77,15 @@ def _save_cache(key, path, result, cached_version):
 
     if cached_version is None:
         thread_message[key] = "Generated command cache"
+        return CacheStatus.NoCache
 
     elif cached_version != new_version:
         thread_message[key] = "Warning data was out of date"
+        return CacheStatus.Updated
 
     else:
         thread_message[key] = "Command cache was up to date"
+        return CacheStatus.NoChange
 
 
 def cache_to_local(cache_key, location=__name__):
@@ -106,13 +127,16 @@ def cache_to_local(cache_key, location=__name__):
 
             def _update_data():
                 cached_result = fun(*args, **kwargs)
-                _save_cache(cache_key, cache_file, cached_result, cached_version)
+                status = _save_cache(
+                    cache_key, cache_file, cached_result, cached_version
+                )
 
-                return cached_result
+                return cached_result, status
 
             def _safe_update():
                 try:
-                    _update_data()
+                    _, status = _update_data()
+                    return status
                 except Exception as err:
                     thread_message[cache_key] = err
                     raise
@@ -127,8 +151,9 @@ def cache_to_local(cache_key, location=__name__):
                 # return current cache
                 return cached_result
             else:
-                # Have to to it sync
-                return _update_data()
+                # Have to do it sync
+                result, _ = _update_data()
+                return result
 
         return wrapper
 
