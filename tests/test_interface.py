@@ -11,9 +11,17 @@ def clean_registry():
 
 
 def test_interface_help(clean_registry, capsys, file_regression):
+    def fixed_width_formatter(*args, **kwargs):
+        kwargs["width"] = 80
+        from argparse import HelpFormatter
+
+        return HelpFormatter(*args, **kwargs)
+
     import clitest
 
-    cli = CommandLineInterface(clitest, prog="here")
+    cli = CommandLineInterface(
+        clitest, prog="here", formatter_class=fixed_width_formatter
+    )
 
     try:
         cli.parse_args(["--help"])

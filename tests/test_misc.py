@@ -64,7 +64,7 @@
 
 #     try:
 #         args = parser.parse_args()
-#         print(args)
+#         print(sorted(vars(args).items(), key=lambda x: x[0]))
 #         print(args.cmd)
 #     except HelpActionException:
 #         pass

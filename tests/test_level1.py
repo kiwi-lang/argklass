@@ -79,13 +79,19 @@ testargs = [
 
 
 def test_argparse(capsys, file_regression):
-    parser = ArgumentParser(prog="here")
+    def fixed_width_formatter(*args, **kwargs):
+        kwargs["width"] = 80
+        from argparse import HelpFormatter
+
+        return HelpFormatter(*args, **kwargs)
+
+    parser = ArgumentParser(prog="here", formatter_class=fixed_width_formatter)
     parser.add_arguments(MyArguments)
 
     parser.print_help()
 
     args = parser.parse_args(testargs)
-    print(args)
+    print(sorted(vars(args).items(), key=lambda x: x[0]))
 
     all = capsys.readouterr()
     stdout = all.out
@@ -98,7 +104,7 @@ def test_argparse_grouped(capsys, file_regression):
     parser.add_arguments(MyArguments, create_group=True)
 
     args = parser.parse_args(testargs)
-    print(args)
+    print(sorted(vars(args).items(), key=lambda x: x[0]))
 
     all = capsys.readouterr()
     stdout = all.out
