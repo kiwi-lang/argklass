@@ -79,7 +79,7 @@ testargs = [
 ]
 
 
-def test_argparse(capsys, file_regression):
+def test_level1_argparse(capsys, file_regression):
     def fixed_width_formatter(*args, **kwargs):
         kwargs["width"] = 80
         from argparse import HelpFormatter
@@ -99,12 +99,14 @@ def test_argparse(capsys, file_regression):
     assert stdout != ""
 
     if sys.version_info.minor == 8:
-        stdout = stdout.replace("--p [P ...]      ", "--p [P [P ...]]  ")
+        stdout = stdout.replace("--p [P ...]      ", "--p [P [P ...]]  ").replace(
+            "[--p [P ...]]", "[--p [P [P ...]]]"
+        )
 
     file_regression.check(stdout)
 
 
-def test_argparse_grouped(capsys, file_regression):
+def test_level1_argparse_grouped(capsys, file_regression):
     parser = ArgumentParser(group_by_dataclass=True, prog="here")
     parser.add_arguments(MyArguments, create_group=True)
 

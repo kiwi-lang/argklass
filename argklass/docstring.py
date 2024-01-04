@@ -11,6 +11,7 @@ class SourceCursor:
 docstring_oneline = re.compile(r'(\s*)"""(.*)"""')
 docstring_start = re.compile(r'(\s*)"""(.*)')
 docstring_end = re.compile(r'(.*)"""')
+attr_line = re.compile(r"(\s*)(?P<varname>[A-Za-z_])(:?)(.*)(=?)(.*)?#(?P<comment>.*)")
 
 
 class DocstringIterator:
@@ -72,23 +73,31 @@ class DocstringIterator:
         return ""
 
     def find_field(self, field):
+
         for source, cursor in zip(self.sources, self.cursors):
             start = cursor.i
             nlines = len(source)
 
-            while start < nlines and field.name not in source[start]:
+            comment = None
+
+            while start < nlines:
+                line = source[start]
+
+                if match := attr_line.match(line):
+                    values = match.groupdict()
+
+                    if values["varname"] == field.name:
+                        comment = values["comment"]
+                        break
+
                 start += 1
 
             # No found
-            if start >= nlines:
+            if start >= nlines and comment is None:
                 continue
 
-            idx = source[start].find("#")
-
-            # Found
-            if idx > 0:
-                docstring = source[start][idx + 1 :].strip()
-                cursor.i = start
-                return docstring
+            docstring = comment.strip()
+            cursor.i = start
+            return docstring
 
         return None

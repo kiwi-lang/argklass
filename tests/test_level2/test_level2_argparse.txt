@@ -11,9 +11,9 @@ optional arguments:
   --b B            My argument
   --c              My argument
   --d {0,1,2,3,4}  choices
-  --e E [E ...]    choices
-  --f [F]          choices
-  --p [P ...]      Optional
+  --e E [E ...]    list
+  --f [F]          Optional
+  --p [P ...]      help p
   --g G            help g
   --aa AA
   --cmd CMD
