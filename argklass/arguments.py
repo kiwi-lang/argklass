@@ -490,6 +490,7 @@ class ArgumentParser(argparse.ArgumentParser):
         self.group_by_dataclass: bool = group_by_dataclass
         self.dataclass = dataclass
         self.use_exception = use_exception
+        self.rebuild_parser = None
 
         if self.dataclass is not argparse.Namespace:
             self.add_arguments(self.dataclass, create_group=False)
@@ -520,22 +521,7 @@ class ArgumentParser(argparse.ArgumentParser):
         return config
 
     def parse_args(self, *args, config=None, **kwargs):
-        from .config import ArgumentConfig
-        from .groupargs import group_by_dataclass
-
-        args = cache_aware_parse_args(self, *args, **kwargs)
-
-        grouped = group_by_dataclass(
-            self, args, self.group_by_parser, self.group_by_dataclass, self.dataclass
-        )
-
-        # Apply a config on top of the command line
-        #   Command line takes precedence
-        if config:
-            transform = ArgumentConfig(config, grouped)
-            transform(self)
-
-        return grouped
+        return parse_args(self, *args, config=None, **kwargs)
 
     def error(self, message):
         if self.use_exception:
@@ -568,24 +554,47 @@ def parse_known_args(dataclass, *args, title=None, dest=None, **kwargs):
     return getattr(args, gp), others
 
 
-def cache_aware_parse_args(parser, *argv, **kwargs):
+
+
+def parse_args(parser, *args, config=None, **kwargs):
+    from .config import ArgumentConfig
+    from .groupargs import group_by_dataclass
+
+    args, parser = cache_aware_parse_args(parser, *args, **kwargs, rebuild_parser=parser.rebuild_parser)
+
+    grouped = group_by_dataclass(
+        parser, args, parser.group_by_parser, parser.group_by_dataclass, parser.dataclass
+    )
+
+    # Apply a config on top of the command line
+    #   Command line takes precedence
+    if config:
+        transform = ArgumentConfig(config, grouped)
+        transform(parser)
+
+    return grouped
+
+
+def cache_aware_parse_args(parser, *argv, rebuild_parser=None, **kwargs):
     """Parse arguments, on failure wait for the async cache update and try again"""
     try:
-        return argparse.ArgumentParser.parse_args(parser, *argv, **kwargs)
+        return argparse.ArgumentParser.parse_args(parser, *argv, **kwargs), parser
 
     except ArgumentParsingError as err:
         # Argument parsing failed once
         # maybe the command cache is outdated
         was_updated = wait_cache_update()
-
-        if not was_updated:
-            # cache was not updated, fail right away
-            err.fail()
-        else:
+    
+        if was_updated:
             # cache was updated try again
-            try:
-                return argparse.ArgumentParser.parse_args(parser, *argv, **kwargs)
-            except ArgumentParsingError:
-                # Argument parsing failed after update
-                # just fail
-                err.fail()
+            # we need to rebuild the parser
+            if rebuild_parser is not None:
+                parser = rebuild_parser()
+                try:
+                    return argparse.ArgumentParser.parse_args(parser, *argv, **kwargs), parser
+                except ArgumentParsingError:
+                    # Argument parsing failed after update
+                    # just fail
+                    err.fail()
+        
+        err.fail()

@@ -7,27 +7,42 @@ from .plugin import CommandRegistry, discover_module_commands
 class CommandLineInterface:
     def __init__(self, module, *args, **kwargs):
         kwargs.setdefault("add_help", False)
-        self.args = None
-        self.parser = ArgumentParser(*args, **kwargs)
+        self.module = module
+        self.args = args
+        self.kwargs = kwargs
+        self.parser, self.commands = self._build_parser(module, *args, **kwargs)
+
+    def rebuild(self):
+        self._rebuild_parser()
+        return self.parser
+
+    def _rebuild_parser(self):
+        self.parser, self.commands = self._build_parser(self.module, *self.args, **self.kwargs)
+
+    def _build_parser(self, module, *args, **kwargs):
+        parser = ArgumentParser(*args, **kwargs)
+        parser.rebuild_parser = self.rebuild
 
         if kwargs["add_help"] is False:
-            self.parser.add_argument(
+            parser.add_argument(
                 "-h",
                 "--help",
                 action=HelpAction.with_exception,
                 help="show this help message and exit",
             )
 
-        subparsers = self.parser.add_subparsers(dest="command")
-        self.commands = discover_module_commands(module)
+        subparsers = parser.add_subparsers(dest="command")
+        commands = discover_module_commands(module)
 
-        if isinstance(self.commands, CommandRegistry):
-            values = self.commands.found_commands.values()
+        if isinstance(commands, CommandRegistry):
+            values = commands.found_commands.values()
         else:
-            values = self.commands.values()
+            values = commands.values()
 
         for cmd in values:
             cmd.arguments(subparsers)
+
+        return parser, commands
 
     def save_defaults(self, path):
         """Save parser defaults to a configuration file"""

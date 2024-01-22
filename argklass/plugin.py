@@ -81,9 +81,9 @@ def _norm_name(cls, module_path):
 def _resolve_factory_module(base_file_name, base_module, function_name, module_path):
     module_file = module_path.split(os.sep)[-1]
 
-    if module_file == base_file_name:
+    if module_file == base_file_name or '.py' not in module_file:
         return
-
+    
     module_name = module_file.split(".py")[0]
 
     try:
