@@ -81,11 +81,11 @@ def _norm_name(cls, module_path):
 def _resolve_factory_module(base_file_name, base_module, function_name, module_path):
     module_file = module_path.split(os.sep)[-1]
 
-    if module_file == base_file_name or '.py' not in module_file:
+    # module_file is not always a file, it can be a folder
+    if module_file == base_file_name:
         return
     
     module_name = module_file.split(".py")[0]
-
     try:
         path = ".".join([base_module, module_name])
 
@@ -93,7 +93,8 @@ def _resolve_factory_module(base_file_name, base_module, function_name, module_p
 
         if hasattr(module, function_name):
             return _norm_name(getattr(module, function_name), module_path)
-
+        else:
+            print(f"Found not commands in {path}")
     except ImportError:
         print(traceback.format_exc())
         return
@@ -105,7 +106,7 @@ def fetch_factories_parallel(
     """Loads all the defined commands"""
 
     module_path = os.path.dirname(os.path.abspath(base_file_name))
-    paths = list(glob.glob(os.path.join(module_path, "[A-Za-z]*"), recursive=False))
+    paths = list(glob.glob(os.path.join(module_path, "[A-Za-z]*"), recursive=True))
 
     futures = []
     for path in paths:
@@ -137,6 +138,7 @@ def fetch_factories_single(
 
 def fetch_factories(registry, base_module, base_file_name, function_name="COMMANDS"):
     fetch_factories_parallel(registry, base_module, base_file_name, function_name)
+    # fetch_factories_single(registry, base_module, base_file_name, function_name)
 
 
 def discover_from_plugins_commands(registry, module, function_name="COMMANDS"):
