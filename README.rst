@@ -38,7 +38,7 @@ Features
 
 * Automatic cli discovery and command plugin
 
-   .. code-block:: bash
+   .. code-block:: text
 
       # Folder structure
       project/cli/
@@ -91,7 +91,7 @@ Features
    * able to show the entire command line interface with all its subparsers
    * new format mirror dataclass syntax
 
-   .. code-block::
+   .. code-block:: text
 
       editor                                           Set of commands to launch the editors in different modes
          server                                       Parameters added to the Map URL
