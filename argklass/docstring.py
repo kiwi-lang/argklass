@@ -11,7 +11,7 @@ class SourceCursor:
 docstring_oneline = re.compile(r'(\s*)"""(.*)"""')
 docstring_start = re.compile(r'(\s*)"""(.*)')
 docstring_end = re.compile(r'(.*)"""')
-attr_line = re.compile(r"(\s*)(?P<varname>[A-Za-z_])(:?)(.*)(=?)(.*)?#(?P<comment>.*)")
+attr_line = re.compile(r"(\s*)(?P<varname>[A-Za-z_]*)(:?)(.*)(=?)(.*)?#(?P<comment>.*)")
 
 
 class DocstringIterator:
@@ -70,14 +70,13 @@ class DocstringIterator:
         if len(docstrings) > 0:
             return docstrings[0]
 
-        return ""
+        return None
 
     def find_field(self, field):
 
         for source, cursor in zip(self.sources, self.cursors):
             start = cursor.i
             nlines = len(source)
-
             comment = None
 
             while start < nlines:

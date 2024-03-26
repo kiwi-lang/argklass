@@ -2,6 +2,8 @@ from argklass.command import Command
 
 
 class Command3(Command):
+    """Command3 docstring"""
+
     name = "cmd3"
 
     @staticmethod

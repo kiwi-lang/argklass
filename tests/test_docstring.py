@@ -54,8 +54,55 @@ def test_find_docstring_a():
 
     assert docstr.get_dataclass_docstring() == MyArguments.__doc__
 
+    found_count = 0
     for field in fields(MyArguments):
         founddocstring = docstr.find_field(field)
 
         if founddocstring:
+            found_count += 1
             assert founddocstring.startswith(field.name)
+        else:
+            print("Field not found", field.name)
+
+    assert found_count == 10
+
+
+def get_build_platforms():
+    return []
+
+
+def guess_platform():
+    return ""
+
+
+def get_build_modes():
+    return []
+
+
+# fmt: off
+@dataclass
+class ArgsExample:
+    target  : str                                                             # Name of the the target to build (UnrealPak, RTSGame, RTSGameEditor, etc...)
+    platform: str = choice(*get_build_platforms(), default=guess_platform())  # Platform to build for, defaults to current platform (Win64, Linux, etc..)
+    mode    : str = choice(*get_build_modes(), default="Development")         # Build mode (Tests, Debug, Development, Shipping)
+    profile : Optional[str] = None                                            # Build multiple targets using a configuration
+# fmt: on
+
+
+def test_find_docstring_b():
+    docstr = DocstringIterator(ArgsExample)
+
+    # Dataclasses auto generate a docstring in this case
+    # assert docstr.get_dataclass_docstring() == ArgsExample.__doc__
+
+    found_count = 0
+    for field in fields(ArgsExample):
+        founddocstring = docstr.find_field(field)
+
+        if founddocstring:
+            found_count += 1
+            print(founddocstring)
+        else:
+            print("Field not found", field.name)
+
+    assert found_count == 4

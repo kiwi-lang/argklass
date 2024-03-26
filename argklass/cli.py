@@ -17,7 +17,9 @@ class CommandLineInterface:
         return self.parser
 
     def _rebuild_parser(self):
-        self.parser, self.commands = self._build_parser(self.module, *self.args, **self.kwargs)
+        self.parser, self.commands = self._build_parser(
+            self.module, *self.args, **self.kwargs
+        )
 
     def _build_parser(self, module, *args, **kwargs):
         parser = ArgumentParser(*args, **kwargs)

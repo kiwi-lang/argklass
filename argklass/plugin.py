@@ -84,7 +84,7 @@ def _resolve_factory_module(base_file_name, base_module, function_name, module_p
     # module_file is not always a file, it can be a folder
     if module_file == base_file_name:
         return
-    
+
     module_name = module_file.split(".py")[0]
     try:
         path = ".".join([base_module, module_name])
@@ -93,8 +93,8 @@ def _resolve_factory_module(base_file_name, base_module, function_name, module_p
 
         if hasattr(module, function_name):
             return _norm_name(getattr(module, function_name), module_path)
-        else:
-            print(f"Found not commands in {path}")
+        elif not module.endswith(".data"):
+            print(f"Found no commands in {path}")
     except ImportError:
         print(traceback.format_exc())
         return

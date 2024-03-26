@@ -381,7 +381,9 @@ def add_arguments(
 ):
     """Traverse the dataclass hierarchy and build a parser tree"""
     docstr = DocstringIterator(dataclass)
-    parser.description = docstr.get_dataclass_docstring()
+
+    if not create_group and (parser.description is None or parser.description == ""):
+        parser.description = docstr.get_dataclass_docstring()
 
     group = parser
     subparser = None
@@ -389,6 +391,7 @@ def add_arguments(
         group = parser.add_argument_group(
             title=title or dataclass.__name__,
             description="",
+            # description=docstr.get_dataclass_docstring(),
             # description=dataclass.__doc__ <= this is ugly AF
         )
         setattr(group, "_dataclass", dataclass)
@@ -554,16 +557,20 @@ def parse_known_args(dataclass, *args, title=None, dest=None, **kwargs):
     return getattr(args, gp), others
 
 
-
-
 def parse_args(parser, *args, config=None, **kwargs):
     from .config import ArgumentConfig
     from .groupargs import group_by_dataclass
 
-    args, parser = cache_aware_parse_args(parser, *args, **kwargs, rebuild_parser=parser.rebuild_parser)
+    args, parser = cache_aware_parse_args(
+        parser, *args, **kwargs, rebuild_parser=parser.rebuild_parser
+    )
 
     grouped = group_by_dataclass(
-        parser, args, parser.group_by_parser, parser.group_by_dataclass, parser.dataclass
+        parser,
+        args,
+        parser.group_by_parser,
+        parser.group_by_dataclass,
+        parser.dataclass,
     )
 
     # Apply a config on top of the command line
@@ -584,17 +591,20 @@ def cache_aware_parse_args(parser, *argv, rebuild_parser=None, **kwargs):
         # Argument parsing failed once
         # maybe the command cache is outdated
         was_updated = wait_cache_update()
-    
+
         if was_updated:
             # cache was updated try again
             # we need to rebuild the parser
             if rebuild_parser is not None:
                 parser = rebuild_parser()
                 try:
-                    return argparse.ArgumentParser.parse_args(parser, *argv, **kwargs), parser
+                    return (
+                        argparse.ArgumentParser.parse_args(parser, *argv, **kwargs),
+                        parser,
+                    )
                 except ArgumentParsingError:
                     # Argument parsing failed after update
                     # just fail
                     err.fail()
-        
+
         err.fail()

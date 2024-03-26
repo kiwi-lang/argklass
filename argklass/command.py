@@ -134,8 +134,15 @@ class Command(metaclass=CommandMeta):
     def arguments(cls, subparsers):
         """Define the arguments of this command"""
         parser = newparser(subparsers, cls)
+
         if argcls := cls.argument_class():
             add_arguments(parser, argcls)
+
+        cls.set_parser_description(parser)
+
+    @classmethod
+    def set_parser_description(cls, parser):
+        parser.description = cls.__doc__
 
     @staticmethod
     def execute(args) -> int:
