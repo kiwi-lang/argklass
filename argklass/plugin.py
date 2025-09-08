@@ -93,7 +93,7 @@ def _resolve_factory_module(base_file_name, base_module, function_name, module_p
 
         if hasattr(module, function_name):
             return _norm_name(getattr(module, function_name), module_path)
-        elif not module.endswith(".data"):
+        elif isinstance(module, str) and not module.endswith(".data")::
             print(f"Found no commands in {path}")
     except ImportError:
         print(traceback.format_exc())
