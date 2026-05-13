@@ -5,7 +5,7 @@ recursive-include argklass *.json
 recursive-include argklass *.py
 
 include LICENSE
-include requirements.txt
+include pyproject.toml
 
 exclude .readthedocs.yml
 exclude tox.ini

@@ -37,7 +37,7 @@ src_path = os.path.abspath(os.path.join(docs_src_path, ".."))
 sys.path.insert(0, src_path)
 
 
-import argklass.core  # noqa
+import argklass  # noqa
 
 # -- General configuration ------------------------------------------------
 
@@ -64,9 +64,9 @@ autodoc_inherit_docstrings = True
 
 # General information about the project.
 project = "argklass"
-_full_version = argklass.core.__version__
-author = argklass.core.__author__
-copyright = argklass.core.__copyright__
+_full_version = argklass.__version__
+author = argklass.__author__
+copyright = argklass.__copyright__
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -221,7 +221,7 @@ texinfo_documents = [
         "argklass Documentation",
         author,
         "argklass",
-        argklass.core.__descr__,
+        argklass.__descr__,
         "Miscellaneous",
     ),
 ]
