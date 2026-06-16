@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, field
 from enum import Enum
 from typing import List, Optional, Tuple, Union
 
@@ -45,7 +45,7 @@ class MyArguments:
     f: Optional[int] = None  # f help
     p: Tuple[int, int] = (1, 1)  # p help
     g: Color = Color.RED  # g help
-    s: SubArgs = SubArgs()  # s help
+    s: SubArgs = field(default_factory=SubArgs)  # s help
     cmd: Union[cmd1, cmd2] = subparsers(cmd1=cmd1, cmd2=cmd2)  # cmd help
 
 

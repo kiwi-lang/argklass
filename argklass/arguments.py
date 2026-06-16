@@ -155,6 +155,15 @@ def cvt_type(hint):
         return hint
 
 
+def _option_strings(name):
+    """Return option strings for a named argument, including the dash variant as an alias."""
+    flags = ["--" + name]
+    dash_name = name.replace("_", "-")
+    if dash_name != name:
+        flags.append("--" + dash_name)
+    return flags
+
+
 def _add_flag(group, field, name, docstring):
     default = False
     action = "store_true"
@@ -164,7 +173,8 @@ def _add_flag(group, field, name, docstring):
         action = "store_false"
 
     group.add_argument(
-        "--" + name,
+        *_option_strings(name),
+        dest=name,
         action=action,
         default=default,
         help=docstring,
@@ -332,8 +342,8 @@ def deduce_add_arguments(field, docstring):
 
 def _flag(name, positional=False):
     if positional:
-        return name
-    return "--" + name
+        return [name]
+    return _option_strings(name)
 
 
 def _add_argument(
@@ -354,8 +364,8 @@ def _add_argument(
         )
     else:
         return group.add_argument(
-            "--" + name,  # Option Strings
-            dest=name,  # dest
+            *_option_strings(name),
+            dest=name,
             required=not positional and required,
             **kwargs,
         )
@@ -445,7 +455,10 @@ def add_arguments(
                 if v is not None:
                     meta.setdefault(k, v)
 
-            group.add_argument(_flag(field.name, positional), **meta)
+            if not positional:
+                meta.setdefault("dest", field.name)
+
+            group.add_argument(*_flag(field.name, positional), **meta)
             continue
 
         if is_dataclass(field.type):

@@ -6,7 +6,7 @@ positional arguments:
   a                Positional
   {cmd1,cmd2}
 
-optional arguments:
+options:
   -h, --help       show this help message and exit
   --b B            My argument
   --c              My argument
