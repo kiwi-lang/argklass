@@ -5,11 +5,13 @@ from typing import Any
 
 class ArgumentParserIterator:
     def __init__(self) -> None:
+        from .settings import settings
+
         self.group_increase_indent = False
         self.show_groups = True
         self.newline_between_groups = False
         self.depth_limit = 0
-        self.col = 50
+        self.col = settings.format_column_width or 50
         self.acc = []
 
     def column(self, depth):
@@ -78,9 +80,11 @@ ArgumentFormaterBase = ArgumentParserIterator
 
 class ArgumentFormater(ArgumentFormaterBase):
     def __init__(self) -> None:
+        from .settings import settings
+
         super().__init__()
         self.printed_help = False
-        self.description_width = 80
+        self.description_width = settings.format_description_width or 80
 
     def format_group(self, group: argparse._ArgumentGroup, depth: int):
         if not self.show_groups:

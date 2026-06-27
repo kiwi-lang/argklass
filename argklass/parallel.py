@@ -1,10 +1,17 @@
 import concurrent.futures
 
-executor = concurrent.futures.ThreadPoolExecutor()
+_executor = None
 
 
 def poolexecutor():
-    return executor
+    global _executor
+    if _executor is None:
+        from .settings import settings
+
+        _executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=settings.parallel_max_workers,
+        )
+    return _executor
 
 
 def submit(fun, *args):
@@ -16,4 +23,7 @@ def as_completed(futures):
 
 
 def shutdown():
-    executor.shutdown()
+    global _executor
+    if _executor is not None:
+        _executor.shutdown()
+        _executor = None

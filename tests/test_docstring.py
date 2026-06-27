@@ -106,3 +106,43 @@ def test_find_docstring_b():
             print("Field not found", field.name)
 
     assert found_count == 4
+
+
+# ===================================================================
+# Additional docstring edge cases and failure modes
+# ===================================================================
+
+
+@dataclass
+class DCArgs:
+    val: int = 10  # val
+
+
+class TestDocstringEdgeCases:
+    def test_find_field(self):
+        doc = DocstringIterator(DCArgs)
+        f = fields(DCArgs)[0]
+        result = doc.find_field(f)
+        assert result == "val"
+
+    def test_get_dataclass_docstring_none(self):
+        doc = DocstringIterator(DCArgs)
+        result = doc.get_dataclass_docstring()
+        assert result is None or isinstance(result, str)
+
+    def test_find_field_not_found(self):
+        doc = DocstringIterator(DCArgs)
+        fake_field = type("FakeField", (), {"name": "zzz_nonexistent"})()
+        result = doc.find_field(fake_field)
+        assert result is None
+
+
+# ===================================================================
+# parallel.py
+# ===================================================================
+
+
+class TestParallel:
+    def test_poolexecutor(self):
+        from argklass.parallel import poolexecutor
+        assert poolexecutor() is not None

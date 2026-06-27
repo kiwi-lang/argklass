@@ -89,10 +89,17 @@ def _save_cache(key, path, result, cached_version):
 
 
 def cache_to_local(cache_key, location=__name__):
-    """Cache function evaluation to the filesystem
+    """Cache function evaluation to the filesystem.
 
-    When the function is called again the cache is update async
+    Caching is skipped when:
+
+    * ``ARGKLASS_CACHE_ENABLED=false`` (global kill-switch), **or**
+    * ``ARGKLASS_CACHE_SKIP_EDITABLE=true`` (the default) **and** the
+      *location* module resolves to a path outside site-packages (i.e.
+      it is an editable / development install).
     """
+    from .settings import is_editable_install, settings
+
     global thread_message
     thread_message[cache_key] = "PENDING"
 
@@ -114,6 +121,14 @@ def cache_to_local(cache_key, location=__name__):
     def _cache_to_local(fun):
         def wrapper(*args, **kwargs):
             nonlocal caches
+
+            if not settings.cache_enabled:
+                thread_message[cache_key] = "Caching disabled"
+                return fun(*args, **kwargs)
+
+            if settings.cache_skip_editable and is_editable_install(location):
+                thread_message[cache_key] = "Caching skipped (editable install)"
+                return fun(*args, **kwargs)
 
             argk = argkey(args, kwargs)
             key = f"{cache_key}_{argk}"
@@ -142,11 +157,14 @@ def cache_to_local(cache_key, location=__name__):
                     raise
 
             if cached_result is not None:
-                global thread_futures
+                if settings.cache_async_update:
+                    global thread_futures
 
-                # launch a async update
-                future = submit(_safe_update)
-                thread_futures[cache_key] = future
+                    # launch a async update
+                    future = submit(_safe_update)
+                    thread_futures[cache_key] = future
+                else:
+                    _safe_update()
 
                 # return current cache
                 return cached_result

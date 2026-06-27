@@ -81,15 +81,22 @@ class GroupArguments(ArgumentFormaterBase):
     def __call__(self, parser: argparse.ArgumentParser, depth: int = 0) -> Any:
         for group in parser._action_groups:
             pop_group = False
+            parent_pops = 0
 
             dataclass = _getattr(group, "_dataclass", argparse.Namespace)
             dest = _getattr(group, "_dest", group.title)
+            parent_path = getattr(group, "_parent_path", None)
 
             if (
                 isinstance(group, argparse._ArgumentGroup)
                 and group.title not in self.ignore_groups
                 and self.group_by_dataclass
             ):
+                if parent_path:
+                    for ancestor in parent_path:
+                        self.new_group(ancestor)
+                        parent_pops += 1
+
                 assert dest is not None
                 self.new_group(dest, dataclass)
                 pop_group = True
@@ -100,6 +107,9 @@ class GroupArguments(ArgumentFormaterBase):
             if pop_group:
                 self.pop_group()
 
+            for _ in range(parent_pops):
+                self.pop_group()
+
     def format_group(self, group: argparse._ArgumentGroup, depth: int):
         for action in group._group_actions:
             if isinstance(action, argparse._SubParsersAction):
@@ -108,6 +118,24 @@ class GroupArguments(ArgumentFormaterBase):
 
             else:
                 self.format_action(action, depth + 1)
+
+        for nested in getattr(group, "_action_groups", []):
+            if nested is group:
+                continue
+
+            dataclass = _getattr(nested, "_dataclass", argparse.Namespace)
+            dest = _getattr(nested, "_dest", nested.title)
+            pop_group = False
+
+            if self.group_by_dataclass and dest not in self.ignore_groups:
+                self.new_group(dest, dataclass)
+                self.dest_to_dataclass[dest] = dataclass
+                pop_group = True
+
+            self.format_group(nested, depth + 1)
+
+            if pop_group:
+                self.pop_group()
 
     def format_subparser(self, action: argparse._SubParsersAction, depth: int):
         if not hasattr(self.args, action.dest):

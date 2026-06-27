@@ -197,6 +197,124 @@ Features
       args = parser.parse_args()
 
 
+MCP Server
+----------
+
+argklass can expose your CLI commands as `MCP <https://modelcontextprotocol.io/>`_ tools,
+letting AI agents call them directly.
+
+.. code-block:: bash
+
+   pip install "argklass[mcp]"
+
+Quick start
+^^^^^^^^^^^
+
+The fastest way to run an MCP server is the built-in entry point — just point
+it at your CLI module:
+
+.. code-block:: bash
+
+   # stdio (default) — for MCP clients that spawn the process
+   python -m argklass.mcp mypackage.cli
+
+   # SSE — for testing or web-based clients
+   python -m argklass.mcp mypackage.cli --transport sse
+
+   # Streamable HTTP — the newest MCP transport
+   python -m argklass.mcp mypackage.cli --transport streamable-http
+
+   # Custom host/port/name
+   python -m argklass.mcp mypackage.cli --transport sse --host 0.0.0.0 --port 9000 --name my-tools
+
+Programmatic usage
+^^^^^^^^^^^^^^^^^^
+
+For more control, use ``create_mcp_server`` directly:
+
+.. code-block:: python
+
+   import mycommands
+   from argklass.mcp import create_mcp_server
+
+   server = create_mcp_server(mycommands, name="my-tools")
+
+   # inspect discovered tools
+   for tool in server.tools:
+       print(tool.name, tool.schema)
+
+   # run as a stdio MCP server
+   server.run()
+
+   # or run with SSE
+   server.run(transport="sse", host="0.0.0.0", port=9000)
+
+The server walks the parser tree, discovers every leaf command, converts its
+arguments to JSON Schema, and registers them as MCP tools.  When a tool is
+invoked, the arguments are converted back to ``argv`` and the command runs
+normally — stdout, stderr and exit code are returned to the caller.
+
+You can also call tools directly for testing:
+
+.. code-block:: python
+
+   output = server.call("editor_cook", {"--dry-run": True})
+
+
+Configuration (sysconfig)
+-------------------------
+
+``argklass.sysconfig`` lets you define configuration as dataclasses, with
+values resolved from environment variables, a config dict, or defaults
+(in that priority order).
+
+.. code-block:: python
+
+   from dataclasses import dataclass, field
+   from argklass.sysconfig import ConfigContext
+
+   ctx = ConfigContext(prefix="MYAPP")
+
+   @dataclass
+   class DatabaseConfig:
+       host: str = ctx.configfield("db.host", str, "localhost")   # MYAPP_DB_HOST
+       port: int = ctx.configfield("db.port", int, 5432)          # MYAPP_DB_PORT
+
+   @dataclass
+   class AppConfig:
+       debug: bool = ctx.configfield("app.debug", bool, False)    # MYAPP_APP_DEBUG
+       db: DatabaseConfig = field(default_factory=DatabaseConfig)
+
+Each field is resolved at instantiation time.  Override via environment:
+
+.. code-block:: bash
+
+   export MYAPP_DB_HOST=db.prod.internal
+   export MYAPP_DB_PORT=5433
+
+Or programmatically with a config dict:
+
+.. code-block:: python
+
+   ctx.set_config({"db": {"host": "db.staging.internal"}})
+   cfg = AppConfig()   # cfg.db.host == "db.staging.internal"
+
+File I/O supports YAML, JSON and HJSON:
+
+.. code-block:: python
+
+   # save / load
+   ctx.save_config(cfg, "config.yaml")
+   cfg = ctx.load_config(AppConfig, "config.yaml")
+
+   # load and apply as the context's config dict
+   ctx.load_and_apply("overrides.yaml")
+
+When several libraries use ``argklass`` in the same process, each one
+creates its own ``ConfigContext`` with a unique prefix, keeping environment
+variables and config dicts fully isolated.
+
+
 Architecture
 ------------
 

@@ -17,6 +17,27 @@ except ImportError:
 
 
 from .arguments import ArgumentParser, argument, choice, group, subparsers
+from .sysconfig import (
+    ConfigContext,
+    apply_config,
+    as_environment_variable,
+    config_fields,
+    config_template,
+    configfield,
+    env_template,
+    from_dict,
+    get_config,
+    load_and_apply,
+    load_config,
+    option,
+    overrides_snapshot,
+    save_config,
+    set_config,
+    set_env_prefix,
+    show_config,
+    to_dict,
+    tracked_options,
+)
 
 __all__ = [
     "argument",
@@ -24,4 +45,35 @@ __all__ = [
     "group",
     "subparsers",
     "choice",
+    "ConfigContext",
+    "apply_config",
+    "as_environment_variable",
+    "config_fields",
+    "config_template",
+    "configfield",
+    "env_template",
+    "from_dict",
+    "get_config",
+    "load_and_apply",
+    "load_config",
+    "option",
+    "overrides_snapshot",
+    "save_config",
+    "set_config",
+    "set_env_prefix",
+    "show_config",
+    "to_dict",
+    "tracked_options",
+    "create_mcp_server",
 ]
+
+
+def create_mcp_server(module, name=None, **cli_kwargs):
+    """Create an MCP server from a module that defines argklass commands.
+
+    Lazy import so the ``mcp`` package is only required when actually used.
+    See :func:`argklass.mcp.create_mcp_server` for full documentation.
+    """
+    from .mcp import create_mcp_server as _create
+
+    return _create(module, name=name, **cli_kwargs)

@@ -381,6 +381,19 @@ def _group(dataclass, title=None, dest=None):
     return dataclass.__name__
 
 
+def _group_target(parser, root, nested_groups):
+    """Return the object on which to create a new argument group.
+
+    When *nested_groups* is ``True`` (Python < 3.14 default) groups are
+    added to *parser* which may itself be a group — this nests them.
+    When ``False`` groups are always added to *root* (the top-level
+    :class:`ArgumentParser`) so the hierarchy stays flat.
+    """
+    if nested_groups:
+        return parser
+    return root
+
+
 def add_arguments(
     parser: argparse.ArgumentParser,
     dataclass,
@@ -388,8 +401,21 @@ def add_arguments(
     pathname=False,
     create_group=True,
     dest=None,
+    *,
+    _root=None,
+    _group_path=None,
 ):
     """Traverse the dataclass hierarchy and build a parser tree"""
+    from .settings import settings
+
+    nested_groups = settings.nested_groups
+
+    if _root is None:
+        _root = parser
+
+    if _group_path is None:
+        _group_path = []
+
     docstr = DocstringIterator(dataclass)
 
     if not create_group and (parser.description is None or parser.description == ""):
@@ -397,15 +423,21 @@ def add_arguments(
 
     group = parser
     subparser = None
+    current_path = list(_group_path)
     if create_group:
-        group = parser.add_argument_group(
+        target = _group_target(parser, _root, nested_groups)
+        group = target.add_argument_group(
             title=title or dataclass.__name__,
             description="",
-            # description=docstr.get_dataclass_docstring(),
-            # description=dataclass.__doc__ <= this is ugly AF
         )
         setattr(group, "_dataclass", dataclass)
         setattr(group, "_dest", dest)
+
+        if not nested_groups and _group_path:
+            setattr(group, "_parent_path", list(_group_path))
+
+        group_dest = dest or dataclass.__name__
+        current_path = _group_path + [group_dest]
 
     for field in fields(dataclass):
         name = field.name
@@ -420,8 +452,18 @@ def add_arguments(
             meta.setdefault("title", name)
             meta.setdefault("description", docstring)
 
-            newgroup = group.add_argument_group(**meta)
-            add_arguments(newgroup, field.type, create_group=False)
+            target = _group_target(group, _root, nested_groups)
+            newgroup = target.add_argument_group(**meta)
+            setattr(newgroup, "_dataclass", field.type)
+            setattr(newgroup, "_dest", name)
+
+            if not nested_groups:
+                setattr(newgroup, "_parent_path", list(current_path))
+
+            add_arguments(
+                newgroup, field.type, create_group=False,
+                _root=_root, _group_path=current_path + [name],
+            )
             continue
 
         if special_argument == "subparsers":
@@ -430,6 +472,7 @@ def add_arguments(
             for k, argcls in meta.items():
                 parser = subparser.add_parser(k)
                 parser.add_arguments(argcls, create_group=True)
+            continue
 
         if special_argument == "subparser":
             meta.setdefault("title", name)
@@ -445,7 +488,7 @@ def add_arguments(
             meta.setdefault("description", docstring)
 
             group = subparser.add_parser(**meta)
-            add_arguments(group, field.type, create_group=False)
+            add_arguments(group, field.type, create_group=False, _root=_root, _group_path=current_path)
             continue
 
         if special_argument == "argument":
@@ -468,6 +511,8 @@ def add_arguments(
                 dest=name,
                 pathname=pathname,
                 create_group=create_group,
+                _root=_root,
+                _group_path=current_path,
             )
             continue
 

@@ -1,5 +1,5 @@
 usage: here [-h] [--b B] [--c] [--d {0,1,2,3,4}] [--e E [E ...]] [--f [F]]
-            [--p [P ...]] [--g G] [--aa AA] [--cmd CMD]
+            [--p [P ...]] [--g G] [--aa AA]
             a {cmd1,cmd2} ...
 
 positional arguments:
@@ -16,5 +16,4 @@ options:
   --p [P ...]      help p
   --g G            help g
   --aa AA
-  --cmd CMD
 [('a', 'positional'), ('aa', '432'), ('args', 'str2'), ('b', 2), ('c', True), ('cmd', 'cmd2'), ('d', 3), ('e', [1, 2, 3, 4]), ('f', None), ('g', <Color.GREEN: 2>), ('p', (1, 2))]

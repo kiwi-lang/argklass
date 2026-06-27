@@ -13,11 +13,9 @@ authors = [
     { name = "Delaunay", email = "pierre@delaunay.io" },
 ]
 classifiers = [
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -27,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 plugins = ["importlib_resources"]
+mcp = ["mcp"]
 
 [project.urls]
 Documentation = "https://argklass.readthedocs.io"
@@ -37,3 +36,6 @@ include = ["argklass*"]
 
 [tool.setuptools_scm]
 version_file = "argklass/_version.py"
+
+[tool.check-manifest]
+ignore = ["argklass/_version.py"]

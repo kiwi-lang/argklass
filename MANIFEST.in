@@ -6,6 +6,7 @@ recursive-include argklass *.py
 
 include LICENSE
 include pyproject.toml
+include requirements.txt
 
 exclude .readthedocs.yml
 exclude tox.ini
