@@ -2187,3 +2187,81 @@ class TestToolListRegression:
         ]
         output = json.dumps(tools, indent=2, sort_keys=True) + "\n"
         file_regression.check(output, extension=".json")
+
+
+# =======================================================================
+# Fast dispatch
+# =======================================================================
+
+
+class TestFastDispatch:
+    """Test mcp_fast_dispatch=True skips argv round-trip."""
+
+    @pytest.fixture(autouse=True)
+    def enable_fast(self, monkeypatch):
+        from argklass.settings import Settings, ctx
+
+        self._settings = Settings()
+        self._settings.mcp_fast_dispatch = True
+        monkeypatch.setattr("argklass.settings.settings", self._settings)
+
+    @pytest.fixture
+    def server(self, clean_registry):
+        import clitest
+
+        return create_mcp_server(clitest, name="clitest-fast")
+
+    def test_setting_enabled(self):
+        assert self._settings.mcp_fast_dispatch is True
+
+    def test_top_level_cmd1(self, server):
+        result = server.call("cmd1", {"message": "fast-hello", "repeat": 2})
+        assert result.count("fast-hello") == 2
+
+    def test_top_level_cmd2_nested_args(self, server):
+        result = server.call("cmd2", {"input": "in.csv", "format": "json"})
+        assert "input=in.csv" in result
+        assert "format=json" in result
+
+    def test_nested_sub_cmd1(self, server):
+        result = server.call("sub_cmd1", {"targets": ["a", "b"]})
+        assert "a" in result
+        assert "b" in result
+
+    def test_nested_sub_cmd2(self, server):
+        result = server.call("sub_cmd2", {"name": "fast-test"})
+        assert "name=fast-test" in result
+
+    def test_nested_sub_cmd3_defaults(self, server):
+        result = server.call("sub_cmd3")
+        assert "0" in result
+
+    def test_nested_sub_cmd4_no_args(self, server):
+        result = server.call("sub_cmd4")
+        assert "ok" in result.lower() or "cmd4" in result.lower()
+
+    def test_type_coercion(self, server):
+        """String values from JSON should be coerced to the right type."""
+        result = server.call("sub_cmd3", {"count": "3"})
+        lines = [l for l in result.strip().split("\n") if l.strip().isdigit()]
+        assert len(lines) == 3
+
+    def test_bool_flag(self, server):
+        result = server.call("cmd1", {"message": "hi", "uppercase": True})
+        assert "HI" in result
+
+    def test_dispatch_chain_stored(self, server):
+        """ToolDef._dispatch_chain is populated for nested commands."""
+        tool = server._tool_map["sub_cmd1"]
+        assert tool._dispatch_chain == [("command", "sub"), ("cmd1", "cmd1")]
+
+    def test_top_level_dispatch_chain(self, server):
+        tool = server._tool_map["cmd1"]
+        assert tool._dispatch_chain == [("command", "cmd1")]
+
+    def test_fallback_when_no_subparser(self, monkeypatch):
+        """Fast dispatch falls back to argv path when _subparser is None."""
+        server = _make_server(GreetCommand)
+        server.tools[0]._subparser = None
+        result = server.call("greet", {"name": "world"})
+        assert "Hello, world!" in result

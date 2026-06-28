@@ -146,6 +146,17 @@ class ToolDef:
     schema: dict
     argv_prefix: list[str]
     arg_metas: list[ArgMeta] = field(default_factory=list)
+    _subparser: argparse.ArgumentParser | None = field(
+        default=None, repr=False, compare=False,
+    )
+    _dispatch_chain: list[tuple[str, str]] = field(
+        default_factory=list, repr=False, compare=False,
+    )
+    """List of ``(dest, value)`` pairs to set on the Namespace for dispatch.
+
+    For example ``[("command", "sub"), ("cmd1", "cmd1")]`` lets
+    ``cli.execute`` walk the full ``ParentCommand`` chain.
+    """
 
 
 def _parser_to_schema(parser: argparse.ArgumentParser):
@@ -228,10 +239,13 @@ def _has_subparsers(parser: argparse.ArgumentParser) -> bool:
 def _extract_tools(
     parser: argparse.ArgumentParser,
     prefix_parts: list[str] | None = None,
+    dispatch_chain: list[tuple[str, str]] | None = None,
 ) -> list[ToolDef]:
     """Walk the parser tree and return a :class:`ToolDef` for every leaf command."""
     if prefix_parts is None:
         prefix_parts = []
+    if dispatch_chain is None:
+        dispatch_chain = []
 
     tools: list[ToolDef] = []
 
@@ -240,11 +254,16 @@ def _extract_tools(
             if not isinstance(action, argparse._SubParsersAction):
                 continue
 
+            dest = action.dest
+
             for name, subparser in sorted(action.choices.items()):
                 new_prefix = prefix_parts + [name]
+                new_chain = dispatch_chain + [(dest, name)]
 
                 if _has_subparsers(subparser):
-                    tools.extend(_extract_tools(subparser, new_prefix))
+                    tools.extend(_extract_tools(
+                        subparser, new_prefix, new_chain,
+                    ))
                 else:
                     tool_name = "_".join(new_prefix)
                     description = (subparser.description or "").strip()
@@ -256,6 +275,8 @@ def _extract_tools(
                             schema=schema,
                             argv_prefix=list(new_prefix),
                             arg_metas=arg_metas,
+                            _subparser=subparser,
+                            _dispatch_chain=list(new_chain),
                         )
                     )
 
@@ -317,6 +338,55 @@ def _build_argv(
             argv.append(str(value))
 
     return argv
+
+
+def _namespace_from_dict(
+    parser: argparse.ArgumentParser,
+    arguments: dict[str, Any],
+) -> argparse.Namespace:
+    """Build an ``argparse.Namespace`` from *arguments* and parser defaults.
+
+    Walks all argument groups (including nested ones produced by
+    ``argklass.group``) so that every action's default is present in the
+    returned namespace, overridden by the caller-supplied *arguments*.
+    Values are coerced through the action's ``type`` when one is set.
+    """
+    ns = argparse.Namespace()
+    visited: set[int] = set()
+
+    def _collect(groups):
+        for group in groups:
+            gid = id(group)
+            if gid in visited:
+                continue
+            visited.add(gid)
+
+            for action in group._group_actions:
+                if isinstance(action, (
+                    argparse._HelpAction,
+                    argparse._SubParsersAction,
+                    argparse._VersionAction,
+                )):
+                    continue
+
+                if hasattr(action, "_action_groups"):
+                    _collect(action._action_groups)
+                    continue
+
+                dest = action.dest
+                if dest in arguments:
+                    value = arguments[dest]
+                    if action.type is not None and not isinstance(value, action.type):
+                        value = action.type(value)
+                    setattr(ns, dest, value)
+                elif action.default is not argparse.SUPPRESS:
+                    setattr(ns, dest, action.default)
+
+            if hasattr(group, "_action_groups"):
+                _collect(group._action_groups)
+
+    _collect(parser._action_groups)
+    return ns
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +461,8 @@ class MCPServer:
 
     def call(self, tool_name: str, arguments: dict[str, Any] | None = None) -> str:
         """Invoke a tool synchronously and return its text output."""
+        from .settings import settings
+
         arguments = arguments or {}
         tool = self._tool_map.get(tool_name)
         if tool is None:
@@ -400,7 +472,7 @@ class MCPServer:
             )
 
         cli = self._tool_cli[tool_name]
-        argv = _build_argv(tool, arguments)
+        fast = settings.mcp_fast_dispatch and tool._subparser is not None
 
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
@@ -408,7 +480,11 @@ class MCPServer:
         with self._lock:
             with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
                 try:
-                    result = cli.run(argv)
+                    if fast:
+                        result = self._dispatch_fast(cli, tool, arguments)
+                    else:
+                        argv = _build_argv(tool, arguments)
+                        result = cli.run(argv)
                 except SystemExit as exc:
                     code = exc.code
                     if isinstance(code, str):
@@ -437,6 +513,16 @@ class MCPServer:
             parts.append(f"exit code: {result}")
 
         return "\n".join(parts) if parts else "Done."
+
+    @staticmethod
+    def _dispatch_fast(cli, tool: ToolDef, arguments: dict[str, Any]):
+        """Skip argv generation and argparse; dispatch directly."""
+        ns = _namespace_from_dict(tool._subparser, arguments)
+
+        for dest, value in tool._dispatch_chain:
+            setattr(ns, dest, value)
+
+        return cli.execute(ns)
 
     # -- MCP server lifecycle --
 

@@ -73,6 +73,9 @@ class Settings:
     nested_groups: bool = ctx.configfield(
         "nested_groups", bool, default=_NESTING_SUPPORTED,
     )
+    mcp_fast_dispatch: bool = ctx.configfield(
+        "mcp.fast_dispatch", bool, default=False,
+    )
 
 
 settings = Settings()
