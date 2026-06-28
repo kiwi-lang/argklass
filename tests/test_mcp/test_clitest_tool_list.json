@@ -1,0 +1,139 @@
+[
+  {
+    "description": "Command1 docstring\n\n    Examples\n    --------\n\n    do this",
+    "inputSchema": {
+      "properties": {
+        "message": {
+          "description": "Message to print",
+          "type": "string"
+        },
+        "repeat": {
+          "default": 1,
+          "description": "Number of times to repeat",
+          "type": "integer"
+        },
+        "uppercase": {
+          "default": false,
+          "description": "Print in uppercase",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "name": "cmd1"
+  },
+  {
+    "description": "Command2 docstring\n\n    Examples\n    --------\n\n    do this",
+    "inputSchema": {
+      "properties": {
+        "destination": {
+          "default": "/dev/stdout",
+          "description": "Output destination path",
+          "type": "string"
+        },
+        "format": {
+          "default": "text",
+          "description": "Output format",
+          "type": "string"
+        },
+        "input": {
+          "description": "Input file path",
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Overwrite existing files",
+          "type": "boolean"
+        },
+        "verbose": {
+          "default": false,
+          "description": "Enable verbose output",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "input"
+      ],
+      "type": "object"
+    },
+    "name": "cmd2"
+  },
+  {
+    "description": "Command1 docstring\n\n    Examples\n    --------\n\n    do this",
+    "inputSchema": {
+      "properties": {
+        "dry_run": {
+          "default": false,
+          "description": "Show what would be done",
+          "type": "boolean"
+        },
+        "jobs": {
+          "default": 4,
+          "description": "Number of parallel jobs",
+          "type": "integer"
+        },
+        "targets": {
+          "description": "Build targets",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "targets"
+      ],
+      "type": "object"
+    },
+    "name": "sub_cmd1"
+  },
+  {
+    "description": "Command2 docstring",
+    "inputSchema": {
+      "properties": {
+        "format": {
+          "default": "json",
+          "description": "Output format",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name to look up",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "sub_cmd2"
+  },
+  {
+    "description": "Command3 docstring",
+    "inputSchema": {
+      "properties": {
+        "count": {
+          "default": 10,
+          "description": "Number of items",
+          "type": "integer"
+        },
+        "reverse": {
+          "default": false,
+          "description": "Reverse order",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "name": "sub_cmd3"
+  },
+  {
+    "description": "Status check with no arguments",
+    "inputSchema": {},
+    "name": "sub_cmd4"
+  }
+]

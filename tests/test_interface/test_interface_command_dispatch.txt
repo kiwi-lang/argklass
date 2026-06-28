@@ -1,5 +1,18 @@
-subcmd1
-subcmd2
-subcmd3
-cmd1
-cmd2
+Building target1 (jobs=4)
+Building target2 (jobs=4)
+name=alice format=json
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+hello
+input=data.csv
+destination=/dev/stdout
+format=json
+overwrite=False

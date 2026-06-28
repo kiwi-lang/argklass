@@ -8,6 +8,7 @@ needs it).
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -443,12 +444,12 @@ class TestParserToSchema:
 
         assert "name" in schema.get("required", [])
 
-    def test_no_args_command_has_empty_properties(self):
+    def test_no_args_command_has_empty_schema(self):
         parser = _make_parser(NoArgsCommand)
         subparser = list(parser._subparsers._group_actions[0].choices.values())[0]
 
         schema, metas = _parser_to_schema(subparser)
-        assert schema["properties"] == {}
+        assert schema == {}
         assert metas == []
 
     def test_required_vs_optional(self):
@@ -888,27 +889,33 @@ class TestCreateMCPServerIntegration:
         assert "sub" not in names
 
     def test_total_tool_count(self, server):
-        assert len(server.tools) == 5
+        assert len(server.tools) == 6
 
     def test_execute_top_level_cmd1(self, server):
-        result = server.call("cmd1")
-        assert "cmd1" in result
+        result = server.call("cmd1", {"message": "hello"})
+        assert "hello" in result
 
     def test_execute_top_level_cmd2(self, server):
-        result = server.call("cmd2")
-        assert "cmd2" in result
+        result = server.call("cmd2", {"input": "data.csv", "format": "json"})
+        assert "input=data.csv" in result
+        assert "format=json" in result
 
     def test_execute_nested_sub_cmd1(self, server):
-        result = server.call("sub_cmd1")
-        assert "subcmd1" in result
+        result = server.call("sub_cmd1", {"targets": ["foo", "bar"]})
+        assert "foo" in result
+        assert "bar" in result
 
     def test_execute_nested_sub_cmd2(self, server):
-        result = server.call("sub_cmd2")
-        assert "subcmd2" in result
+        result = server.call("sub_cmd2", {"name": "test"})
+        assert "name=test" in result
 
     def test_execute_nested_sub_cmd3(self, server):
         result = server.call("sub_cmd3")
-        assert "subcmd3" in result
+        assert "0" in result
+
+    def test_execute_nested_sub_cmd4_no_args(self, server):
+        result = server.call("sub_cmd4")
+        assert "ok" in result
 
     def test_server_name(self, server):
         assert server.name == "clitest-mcp"
@@ -2022,6 +2029,10 @@ class TestMainEntryPoint:
 
 
 class TestNestedGroupSchema:
+    @pytest.mark.skipif(
+        sys.version_info >= (3, 14),
+        reason="Python 3.14+ does not allow nested argument groups",
+    )
     def test_args_from_nested_groups_appear_in_schema(self):
         """Arguments inside nested argument groups must appear in the schema."""
         from argklass.mcp import _parser_to_schema
@@ -2039,6 +2050,32 @@ class TestNestedGroupSchema:
         dests = {m.dest for m in metas}
         assert "alpha" in dests
         assert "beta" in dests
+
+    def test_argklass_flat_groups_appear_in_schema(self):
+        """Arguments from argklass flat-mode groups appear in the schema.
+
+        This simulates the Python 3.14 flat-group layout where argklass
+        adds groups as siblings on the root parser with _dataclass metadata.
+        """
+        from argklass.mcp import _parser_to_schema
+
+        parser = argparse.ArgumentParser()
+        # Simulate what argklass does in flat mode: groups as siblings
+        outer = parser.add_argument_group("Outer")
+        outer.add_argument("--alpha", type=int, default=1)
+        setattr(outer, "_dataclass", type("Outer", (), {}))
+        setattr(outer, "_dest", "outer")
+
+        inner = parser.add_argument_group("Inner")
+        inner.add_argument("--beta", type=str, default="b")
+        setattr(inner, "_dataclass", type("Inner", (), {}))
+        setattr(inner, "_dest", "inner")
+        setattr(inner, "_parent_path", ["outer"])
+
+        schema, metas = _parser_to_schema(parser)
+        props = schema["properties"]
+        assert "alpha" in props
+        assert "beta" in props
 
 
 # =======================================================================
@@ -2096,3 +2133,57 @@ class TestCreateMCPServerMulti:
             create_mcp_server(clitest, mod2, prefix=True)
 
         assert add_calls == ["mytools"]
+
+
+# =======================================================================
+# Regression: tool list JSON snapshot
+# =======================================================================
+
+
+class TestToolListRegression:
+    """Snapshot the MCP tool list as indented JSON.
+
+    If the tool schema changes, the baseline file must be regenerated with:
+        pytest --force-regen tests/test_mcp.py::TestToolListRegression
+    """
+
+    def test_inline_commands_tool_list(self, file_regression):
+        """Regression for tool list built from inline test commands."""
+        import json
+
+        server = _make_server(
+            GreetCommand,
+            AddCommand,
+            NoArgsCommand,
+            RichCommand,
+            DisableCommand,
+            ReturnValueCommand,
+        )
+        tools = [
+            {
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": t.schema,
+            }
+            for t in server.tools
+        ]
+        output = json.dumps(tools, indent=2, sort_keys=True) + "\n"
+        file_regression.check(output, extension=".json")
+
+    def test_clitest_tool_list(self, file_regression, clean_registry):
+        """Regression for tool list built from the clitest package."""
+        import json
+
+        import clitest
+
+        server = create_mcp_server(clitest, name="clitest-mcp")
+        tools = [
+            {
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": t.schema,
+            }
+            for t in server.tools
+        ]
+        output = json.dumps(tools, indent=2, sort_keys=True) + "\n"
+        file_regression.check(output, extension=".json")

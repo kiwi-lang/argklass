@@ -39,11 +39,11 @@ def test_interface_command_dispatch(clean_registry, capsys, file_regression):
 
     cli = CommandLineInterface(clitest, prog="here")
 
-    cli.run(["sub", "cmd1"])
-    cli.run(["sub", "cmd2"])
+    cli.run(["sub", "cmd1", "target1", "target2"])
+    cli.run(["sub", "cmd2", "alice"])
     cli.run(["sub", "cmd3"])
-    cli.run(["cmd1"])
-    cli.run(["cmd2"])
+    cli.run(["cmd1", "hello"])
+    cli.run(["cmd2", "data.csv", "--format", "json"])
 
     all = capsys.readouterr()
     stdout = all.out

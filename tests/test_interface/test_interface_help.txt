@@ -7,8 +7,14 @@
 positional arguments                              
   cmd1                                             Command1 docstring
       -h, --help                                   Show help
+      message: str                                 Message to print
+      --repeat: int = 1                            Number of times to repeat
+      --uppercase: bool = False                    Print in uppercase
   cmd2                                             Command2 docstring
+      input: str                                   Input file path
+      --verbose: bool = False                      Enable verbose output
   sub                                              
       cmd1                                         Command1 docstring
       cmd2                                         Command2 docstring
       cmd3                                         Command3 docstring
+      cmd4                                         Status check with no arguments

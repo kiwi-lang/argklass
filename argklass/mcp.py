@@ -149,12 +149,25 @@ class ToolDef:
 
 
 def _parser_to_schema(parser: argparse.ArgumentParser):
-    """Extract a JSON Schema *inputSchema* and arg metadata from *parser*."""
+    """Extract a JSON Schema *inputSchema* and arg metadata from *parser*.
+
+    Walks all argument groups reachable from *parser*, including those
+    created by argklass in flat mode (Python 3.14+).  Groups annotated
+    with the ``_dataclass`` attribute by :func:`add_arguments` are
+    followed regardless of whether they are physically nested or
+    siblings on the root parser.
+    """
     properties: dict[str, dict] = {}
     required: list[str] = []
     metas: list[ArgMeta] = []
+    visited: set[int] = set()
 
     def _visit_group(group):
+        gid = id(group)
+        if gid in visited:
+            return
+        visited.add(gid)
+
         for action in group._group_actions:
             dest, prop = _action_to_property(action)
             if dest is None:
@@ -184,11 +197,13 @@ def _parser_to_schema(parser: argparse.ArgumentParser):
             metas.append(meta)
 
         for nested in getattr(group, "_action_groups", []):
-            if nested is not group:
-                _visit_group(nested)
+            _visit_group(nested)
 
     for group in parser._action_groups:
         _visit_group(group)
+
+    if not properties:
+        return {}, metas
 
     schema: dict[str, Any] = {"type": "object", "properties": properties}
     if required:

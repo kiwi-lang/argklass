@@ -1,0 +1,128 @@
+[
+  {
+    "description": "Add two numbers.",
+    "inputSchema": {
+      "properties": {
+        "a": {
+          "description": "First number",
+          "type": "integer"
+        },
+        "b": {
+          "description": "Second number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "type": "object"
+    },
+    "name": "add"
+  },
+  {
+    "description": "Command with store_false flag.",
+    "inputSchema": {
+      "properties": {
+        "no_cache": {
+          "default": true,
+          "description": "Disable caching",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "name": "build"
+  },
+  {
+    "description": "A command that returns a non-zero exit code.",
+    "inputSchema": {
+      "properties": {
+        "code": {
+          "default": 0,
+          "description": "exit code to return",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "exitcode"
+  },
+  {
+    "description": "Greet someone by name.",
+    "inputSchema": {
+      "properties": {
+        "count": {
+          "default": 1,
+          "description": "How many times",
+          "type": "integer"
+        },
+        "loud": {
+          "default": false,
+          "description": "Shout it",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Name to greet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "greet"
+  },
+  {
+    "description": "A command with no arguments.",
+    "inputSchema": {},
+    "name": "ping"
+  },
+  {
+    "description": "A command with rich argument types.",
+    "inputSchema": {
+      "properties": {
+        "mode": {
+          "default": "auto",
+          "description": "Processing mode",
+          "enum": [
+            "fast",
+            "slow",
+            "auto"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "description": "File path",
+          "type": "string"
+        },
+        "tags": {
+          "default": [
+            "default"
+          ],
+          "description": "Tags",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "threshold": {
+          "default": 0.5,
+          "description": "Threshold value",
+          "type": "number"
+        },
+        "verbosity": {
+          "description": "Verbosity level",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "process"
+  }
+]
