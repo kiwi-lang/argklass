@@ -1724,3 +1724,375 @@ class TestThreadSafety:
         assert len(results) == 20
         for i, result in results:
             assert str(i * 2) in result
+
+
+# =======================================================================
+# Multi-module / add_module
+# =======================================================================
+
+
+class TestMultiModule:
+    def test_cli_property(self):
+        """The .cli property returns the first CLI for backward compatibility."""
+        server = _make_server(GreetCommand)
+        assert server.cli is server._clis[0]
+
+    def _make_second_server(self):
+        """Build a fake CLI module with a different command for multi-module tests."""
+        import types
+
+        parser2 = _make_parser(AddCommand)
+
+        class FakeCLI2:
+            pass
+
+        cli2 = FakeCLI2()
+        cli2.parser = parser2
+
+        def fake_run(argv):
+            args = argparse.ArgumentParser.parse_args(parser2, argv)
+            cmd_name = vars(args).pop("command")
+            return {"add": AddCommand()}[cmd_name](args)
+
+        cli2.run = fake_run
+
+        mod = types.ModuleType("fakecli2")
+        mod.__name__ = "fakecli2"
+        mod.COMMANDS = None
+        return mod, cli2
+
+    def test_add_module_no_prefix(self, clean_registry):
+        """add_module without prefix keeps original tool names."""
+        import clitest
+
+        server = _make_server(GreetCommand)
+        before = len(server.tools)
+        server.add_module(clitest)
+        assert len(server.tools) > before
+        # Tools from clitest should not be prefixed
+        clitest_names = [t.name for t in server.tools[before:]]
+        assert all(not n.startswith("clitest_") for n in clitest_names)
+
+    def test_add_module_with_prefix(self, clean_registry):
+        """add_module prefixes tool names when prefix is given."""
+        import clitest
+
+        server = _make_server(GreetCommand)
+        server.add_module(clitest, prefix="ct")
+        prefixed = [t.name for t in server.tools if t.name.startswith("ct_")]
+        assert len(prefixed) > 0
+
+    def test_add_module_duplicate_raises(self, clean_registry):
+        """add_module raises ValueError on duplicate tool names."""
+        # Use _make_server so the CLI is fake and doesn't hit ParentCommand dispatch
+        server = _make_server(GreetCommand, AddCommand)
+
+        # Build a second fake CLI that also has "greet"
+        parser2 = _make_parser(GreetCommand)
+
+        class FakeCLI2:
+            pass
+
+        cli2 = FakeCLI2()
+        cli2.parser = parser2
+        cli2.run = lambda argv: None
+
+        import types
+
+        mod2 = types.ModuleType("fakecli2")
+        from unittest.mock import patch
+
+        with patch("argklass.cli.CommandLineInterface", return_value=cli2):
+            with pytest.raises(ValueError, match="Duplicate tool name"):
+                server.add_module(mod2)
+
+    def test_add_module_tool_routes_to_correct_cli(self, clean_registry):
+        """Each tool is dispatched to the CLI it came from."""
+        import clitest
+
+        server = _make_server(AddCommand)
+        server.add_module(clitest, prefix="ct")
+        # The add tool should still work via the original CLI
+        result = server.call("add", {"a": 3, "b": 4})
+        assert "7" in result
+
+    def test_create_mcp_server_single_module(self, clean_registry):
+        """create_mcp_server with a single module works."""
+        import clitest
+
+        server = create_mcp_server(clitest, name="multi")
+        original_names = {t.name for t in server.tools}
+        assert server.name == "multi"
+        assert len(original_names) > 0
+
+
+# =======================================================================
+# Transport error paths
+# =======================================================================
+
+
+class TestTransportErrors:
+    def test_stdio_bad_stdout(self, clean_registry):
+        """stdio transport raises RuntimeError when stdout is not a real file."""
+        import asyncio
+        import sys
+        import types
+        from unittest.mock import MagicMock, patch
+
+        server = _make_server(NoArgsCommand)
+
+        # Set up minimal mcp mocks so _serve gets past the import
+        fake_mcp_server = MagicMock()
+        fake_mcp_server.list_tools = lambda: lambda fn: fn
+        fake_mcp_server.call_tool = lambda: lambda fn: fn
+        mock_server_cls = MagicMock(return_value=fake_mcp_server)
+
+        mcp_ll_mod = types.ModuleType("mcp.server.lowlevel")
+        mcp_ll_mod.Server = mock_server_cls
+        mcp_types_mod = types.ModuleType("mcp.types")
+        mcp_types_mod.Tool = MagicMock()
+        mcp_types_mod.TextContent = MagicMock()
+
+        patched_mods = {
+            "mcp": types.ModuleType("mcp"),
+            "mcp.server": types.ModuleType("mcp.server"),
+            "mcp.server.lowlevel": mcp_ll_mod,
+            "mcp.types": mcp_types_mod,
+        }
+
+        fake_stdout = MagicMock(spec=[])  # no attributes at all
+        with patch.dict(sys.modules, patched_mods):
+            with patch("sys.stdout", fake_stdout):
+                with pytest.raises(RuntimeError, match="stdio transport requires"):
+                    asyncio.run(server._serve("stdio"))
+
+    def test_sse_import_error(self, clean_registry):
+        """SSE transport raises ImportError when starlette/uvicorn missing."""
+        import asyncio
+        import sys
+        import types
+        from unittest.mock import MagicMock, patch
+
+        server = _make_server(NoArgsCommand)
+
+        fake_mcp_server = MagicMock()
+        fake_mcp_server.list_tools = lambda: lambda fn: fn
+        fake_mcp_server.call_tool = lambda: lambda fn: fn
+        mock_server_cls = MagicMock(return_value=fake_mcp_server)
+
+        mcp_ll_mod = types.ModuleType("mcp.server.lowlevel")
+        mcp_ll_mod.Server = mock_server_cls
+        mcp_types_mod = types.ModuleType("mcp.types")
+        mcp_types_mod.Tool = MagicMock()
+        mcp_types_mod.TextContent = MagicMock()
+
+        patched_mods = {
+            "mcp": types.ModuleType("mcp"),
+            "mcp.server": types.ModuleType("mcp.server"),
+            "mcp.server.lowlevel": mcp_ll_mod,
+            "mcp.types": mcp_types_mod,
+        }
+        with patch.dict(sys.modules, patched_mods):
+            # Remove starlette so the import inside _serve_sse fails
+            with patch.dict(sys.modules, {"starlette": None, "starlette.applications": None}):
+                with pytest.raises(ImportError, match="starlette"):
+                    asyncio.run(server._serve("sse"))
+
+    def test_streamable_http_import_error(self, clean_registry):
+        """streamable-http transport raises ImportError when deps missing."""
+        import asyncio
+        import sys
+        import types
+        from unittest.mock import MagicMock, patch
+
+        server = _make_server(NoArgsCommand)
+
+        fake_mcp_server = MagicMock()
+        fake_mcp_server.list_tools = lambda: lambda fn: fn
+        fake_mcp_server.call_tool = lambda: lambda fn: fn
+        mock_server_cls = MagicMock(return_value=fake_mcp_server)
+
+        mcp_ll_mod = types.ModuleType("mcp.server.lowlevel")
+        mcp_ll_mod.Server = mock_server_cls
+        mcp_types_mod = types.ModuleType("mcp.types")
+        mcp_types_mod.Tool = MagicMock()
+        mcp_types_mod.TextContent = MagicMock()
+
+        patched_mods = {
+            "mcp": types.ModuleType("mcp"),
+            "mcp.server": types.ModuleType("mcp.server"),
+            "mcp.server.lowlevel": mcp_ll_mod,
+            "mcp.types": mcp_types_mod,
+        }
+        with patch.dict(sys.modules, patched_mods):
+            with patch.dict(sys.modules, {
+                "mcp.server.streamable_http": None,
+            }):
+                with pytest.raises(ImportError, match="starlette.*uvicorn"):
+                    asyncio.run(server._serve("streamable-http"))
+
+    def test_mcp_not_installed(self):
+        """Both mcp import paths fail -> ImportError with install hint."""
+        import asyncio
+        import sys
+        from unittest.mock import patch
+
+        server = _make_server(NoArgsCommand)
+        with patch.dict(sys.modules, {
+            "mcp": None,
+            "mcp.server": None,
+            "mcp.server.lowlevel": None,
+        }):
+            with pytest.raises(ImportError, match="pip install"):
+                asyncio.run(server._serve("stdio"))
+
+
+# =======================================================================
+# _main entry point
+# =======================================================================
+
+
+class TestMainEntryPoint:
+    def test_main_runs_server(self, clean_registry, monkeypatch):
+        """_main parses args, imports modules, and calls server.run()."""
+        from unittest.mock import patch
+
+        from argklass.mcp import _main
+
+        called_with = {}
+
+        def fake_run(self_arg, transport, host, port):
+            called_with["transport"] = transport
+            called_with["host"] = host
+            called_with["port"] = port
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["argklass.mcp", "clitest", "--transport", "sse", "--port", "9999"],
+        )
+        with patch.object(MCPServer, "run", fake_run):
+            _main()
+
+        assert called_with["transport"] == "sse"
+        assert called_with["port"] == 9999
+
+    def test_main_default_transport(self, clean_registry, monkeypatch):
+        """_main defaults to stdio transport."""
+        from unittest.mock import patch
+
+        from argklass.mcp import _main
+
+        called_with = {}
+
+        def fake_run(self_arg, transport, host, port):
+            called_with["transport"] = transport
+
+        monkeypatch.setattr("sys.argv", ["argklass.mcp", "clitest"])
+        with patch.object(MCPServer, "run", fake_run):
+            _main()
+
+        assert called_with["transport"] == "stdio"
+
+    def test_main_host_port(self, clean_registry, monkeypatch):
+        """_main forwards --host and --port."""
+        from unittest.mock import patch
+
+        from argklass.mcp import _main
+
+        called_with = {}
+
+        def fake_run(self_arg, transport, host, port):
+            called_with["host"] = host
+            called_with["port"] = port
+
+        monkeypatch.setattr(
+            "sys.argv",
+            ["argklass.mcp", "clitest", "--host", "0.0.0.0", "--port", "3000"],
+        )
+        with patch.object(MCPServer, "run", fake_run):
+            _main()
+
+        assert called_with["host"] == "0.0.0.0"
+        assert called_with["port"] == 3000
+
+
+# =======================================================================
+# Nested group recursion in _parser_to_schema
+# =======================================================================
+
+
+class TestNestedGroupSchema:
+    def test_args_from_nested_groups_appear_in_schema(self):
+        """Arguments inside nested argument groups must appear in the schema."""
+        from argklass.mcp import _parser_to_schema
+
+        parser = argparse.ArgumentParser()
+        outer = parser.add_argument_group("outer")
+        outer.add_argument("--alpha", type=int, default=1)
+        inner = outer.add_argument_group("inner")
+        inner.add_argument("--beta", type=str, default="b")
+
+        schema, metas = _parser_to_schema(parser)
+        props = schema["properties"]
+        assert "alpha" in props
+        assert "beta" in props
+        dests = {m.dest for m in metas}
+        assert "alpha" in dests
+        assert "beta" in dests
+
+
+# =======================================================================
+# create_mcp_server multi-module path
+# =======================================================================
+
+
+class TestCreateMCPServerMulti:
+    def test_extra_modules_loop(self, clean_registry):
+        """create_mcp_server with extra_modules calls add_module for each."""
+        import clitest
+        import types
+        from unittest.mock import patch, MagicMock
+
+        # Create a fake second module with its own CLI
+        parser2 = _make_parser(AddCommand)
+
+        class FakeCLI2:
+            pass
+
+        cli2 = FakeCLI2()
+        cli2.parser = parser2
+        cli2.run = lambda argv: None
+
+        mod2 = types.ModuleType("mod2")
+        mod2.__name__ = "mod2"
+
+        call_count = {"n": 0}
+        original_init = MCPServer.add_module
+
+        def counting_add(self_arg, module, prefix=None, **kwargs):
+            call_count["n"] += 1
+
+        with patch.object(MCPServer, "add_module", counting_add):
+            create_mcp_server(clitest, mod2, name="multi")
+
+        assert call_count["n"] == 1
+
+    def test_extra_modules_prefix_true(self, clean_registry):
+        """create_mcp_server with prefix=True derives prefix from module name."""
+        import clitest
+        import types
+        from unittest.mock import patch
+
+        mod2 = types.ModuleType("mytools")
+        mod2.__name__ = "mytools"
+
+        add_calls = []
+        original_add = MCPServer.add_module
+
+        def spy_add(self_arg, module, prefix=None, **kwargs):
+            add_calls.append(prefix)
+
+        with patch.object(MCPServer, "add_module", spy_add):
+            create_mcp_server(clitest, mod2, prefix=True)
+
+        assert add_calls == ["mytools"]
