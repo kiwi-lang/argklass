@@ -27,7 +27,9 @@ import io
 import threading
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, List
+
+from .arguments import argument
 
 
 # ---------------------------------------------------------------------------
@@ -321,10 +323,54 @@ class MCPServer:
 
     def __init__(self, name: str, cli):
         self.name = name
-        self.cli = cli
+        self._clis: list = [cli]
         self.tools: list[ToolDef] = _extract_tools(cli.parser)
         self._tool_map: dict[str, ToolDef] = {t.name: t for t in self.tools}
+        self._tool_cli: dict[str, Any] = {t.name: cli for t in self.tools}
         self._lock = threading.Lock()
+
+    @property
+    def cli(self):
+        """The first (or only) CLI.  Kept for backward compatibility."""
+        return self._clis[0]
+
+    def add_module(self, module, prefix: str | None = None, **cli_kwargs):
+        """Add tools from another CLI module to this server.
+
+        Parameters
+        ----------
+        module:
+            A Python module whose sub-modules export ``COMMANDS``.
+        prefix:
+            Optional prefix prepended to tool names to avoid collisions
+            (e.g. ``"bench"`` turns ``run`` into ``bench_run``).
+        **cli_kwargs:
+            Forwarded to :class:`~argklass.cli.CommandLineInterface`.
+        """
+        from .cli import CommandLineInterface
+
+        cli = CommandLineInterface(module, **cli_kwargs)
+        self._clis.append(cli)
+
+        new_tools = _extract_tools(cli.parser)
+
+        for tool in new_tools:
+            if prefix:
+                tool = ToolDef(
+                    name=f"{prefix}_{tool.name}",
+                    description=tool.description,
+                    schema=tool.schema,
+                    argv_prefix=tool.argv_prefix,
+                    arg_metas=tool.arg_metas,
+                )
+            if tool.name in self._tool_map:
+                raise ValueError(
+                    f"Duplicate tool name {tool.name!r}. "
+                    "Use the 'prefix' parameter to disambiguate."
+                )
+            self.tools.append(tool)
+            self._tool_map[tool.name] = tool
+            self._tool_cli[tool.name] = cli
 
     # -- direct invocation (useful for testing) --
 
@@ -338,6 +384,7 @@ class MCPServer:
                 f"Unknown tool {tool_name!r}. Available: {known}"
             )
 
+        cli = self._tool_cli[tool_name]
         argv = _build_argv(tool, arguments)
 
         stdout_buf = io.StringIO()
@@ -346,7 +393,7 @@ class MCPServer:
         with self._lock:
             with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
                 try:
-                    result = self.cli.run(argv)
+                    result = cli.run(argv)
                 except SystemExit as exc:
                     code = exc.code
                     if isinstance(code, str):
@@ -541,15 +588,27 @@ class MCPServer:
 # ---------------------------------------------------------------------------
 
 
-def create_mcp_server(module, name: str | None = None, **cli_kwargs) -> MCPServer:
-    """Create an :class:`MCPServer` from a module that defines argklass commands.
+def create_mcp_server(
+    module,
+    *extra_modules,
+    name: str | None = None,
+    prefix: bool = False,
+    **cli_kwargs,
+) -> MCPServer:
+    """Create an :class:`MCPServer` from one or more CLI modules.
 
     Parameters
     ----------
     module:
         A Python module (package) whose sub-modules export ``COMMANDS``.
+    *extra_modules:
+        Additional modules to merge into the same server.
     name:
         Server name shown to MCP clients.  Defaults to *module.__name__*.
+    prefix:
+        When ``True`` and multiple modules are provided, each module's
+        tools are prefixed with the module name to avoid collisions
+        (e.g. ``mypackage_run``).  Has no effect with a single module.
     **cli_kwargs:
         Forwarded to :class:`~argklass.cli.CommandLineInterface`
         (e.g. ``prog="mytool"``).
@@ -575,6 +634,13 @@ def create_mcp_server(module, name: str | None = None, **cli_kwargs) -> MCPServe
 
         # run as stdio MCP server
         server.run()
+
+    Multiple modules:
+
+    .. code-block:: python
+
+        import pkg_a, pkg_b
+        server = create_mcp_server(pkg_a, pkg_b, prefix=True)
     """
     from .cli import CommandLineInterface
 
@@ -582,55 +648,49 @@ def create_mcp_server(module, name: str | None = None, **cli_kwargs) -> MCPServe
         name = getattr(module, "__name__", "argklass-mcp")
 
     cli = CommandLineInterface(module, **cli_kwargs)
-    return MCPServer(name, cli)
+    server = MCPServer(name, cli)
+
+    for mod in extra_modules:
+        mod_prefix = getattr(mod, "__name__", "").rsplit(".", 1)[-1] if prefix else None
+        server.add_module(mod, prefix=mod_prefix)
+
+    return server
 
 
 # ---------------------------------------------------------------------------
 # python -m argklass.mcp <module> [--name NAME] [--transport TRANSPORT]
 # ---------------------------------------------------------------------------
 
-_TRANSPORTS = ("stdio", "sse", "streamable-http")
+
+@dataclass
+class MCPArgs:
+    """Run an MCP server from one or more argklass CLI modules."""
+
+    modules: List[str] = argument()  # Dotted import path(s) of CLI module(s)
+    transport: str = argument(default="stdio", choices=["stdio", "sse", "streamable-http"])  # MCP transport protocol
+    name: str = None  # Server name shown to MCP clients
+    host: str = "127.0.0.1"  # Bind address for sse/streamable-http
+    port: int = 8000  # Port for sse/streamable-http
+    no_prefix: bool = False  # Don't prefix tool names when using multiple modules
 
 
 def _main():
-    import argparse
     import importlib
 
-    parser = argparse.ArgumentParser(
-        prog="python -m argklass.mcp",
-        description="Run an MCP server from an argklass CLI module.",
-    )
-    parser.add_argument(
-        "module",
-        help="Dotted import path of the CLI module (e.g. mypackage.cli).",
-    )
-    parser.add_argument(
-        "--name",
-        default=None,
-        help="Server name shown to MCP clients (defaults to the module name).",
-    )
-    parser.add_argument(
-        "--transport",
-        default="stdio",
-        choices=_TRANSPORTS,
-        help="Transport to use (default: stdio).",
-    )
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Bind address for sse/streamable-http (default: 127.0.0.1).",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port for sse/streamable-http (default: 8000).",
-    )
-    args = parser.parse_args()
+    from .arguments import parse
 
-    mod = importlib.import_module(args.module)
-    server = create_mcp_server(mod, name=args.name)
-    server.run(transport=args.transport, host=args.host, port=args.port)
+    args = parse(MCPArgs, prog="python -m argklass.mcp")
+
+    modules = [importlib.import_module(m) for m in args.modules]
+    use_prefix = len(modules) > 1 and not args.no_prefix
+    server = create_mcp_server(
+        modules[0], *modules[1:], name=args.name, prefix=use_prefix,
+    )
+    server.run(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+    )
 
 
 if __name__ == "__main__":
