@@ -37,19 +37,20 @@ def _install_paths() -> list[str]:
 _INSTALL_PATHS = _install_paths()
 
 
-@lru_cache(maxsize=128)
-def is_editable_install(module_path: str) -> bool:
+def is_editable_install(module_path) -> bool:
     """Return True if *module_path* resolves to a location outside site-packages.
 
     This indicates the package is installed in editable / development mode.
-    ``module_path`` is a dotted module name such as ``"mypackage"`` or
-    ``"mypackage.submodule"`` — the same kind of string passed as
-    ``location`` to :func:`~argklass.cache.cache_to_local`.
+    ``module_path`` can be a dotted module name string (e.g. ``"mypackage"``)
+    or an already-imported module object.
     """
-    try:
-        mod = importlib.import_module(module_path)
-    except (ImportError, ModuleNotFoundError):
-        return False
+    if not isinstance(module_path, str):
+        mod = module_path
+    else:
+        try:
+            mod = importlib.import_module(module_path)
+        except (ImportError, ModuleNotFoundError):
+            return False
 
     mod_file = getattr(mod, "__file__", None)
     if mod_file is None:
