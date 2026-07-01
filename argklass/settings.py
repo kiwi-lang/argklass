@@ -37,17 +37,17 @@ def _install_paths() -> list[str]:
 _INSTALL_PATHS = _install_paths()
 
 
-@lru_cache(maxsize=128)
-def is_editable_install(module_path: str) -> bool:
-    """Return True if *module_path* resolves to a location outside site-packages.
+def _normalize_module_path(module_path) -> str:
+    """Accept a module object or a dotted name string; always return a string."""
+    if isinstance(module_path, str):
+        return module_path
+    return getattr(module_path, "__name__", str(module_path))
 
-    This indicates the package is installed in editable / development mode.
-    ``module_path`` is a dotted module name such as ``"mypackage"`` or
-    ``"mypackage.submodule"`` — the same kind of string passed as
-    ``location`` to :func:`~argklass.cache.cache_to_local`.
-    """
+
+@lru_cache(maxsize=128)
+def _is_editable_install_cached(module_name: str) -> bool:
     try:
-        mod = importlib.import_module(module_path)
+        mod = importlib.import_module(module_name)
     except (ImportError, ModuleNotFoundError):
         return False
 
@@ -57,6 +57,20 @@ def is_editable_install(module_path: str) -> bool:
 
     resolved = str(pathlib.Path(mod_file).resolve())
     return not any(resolved.startswith(sp) for sp in _INSTALL_PATHS)
+
+
+def is_editable_install(module_path) -> bool:
+    """Return True if *module_path* resolves to a location outside site-packages.
+
+    This indicates the package is installed in editable / development mode.
+    ``module_path`` can be a dotted module name string (e.g. ``"mypackage"``)
+    or an already-imported module object.
+    """
+    return _is_editable_install_cached(_normalize_module_path(module_path))
+
+
+is_editable_install.cache_clear = _is_editable_install_cached.cache_clear
+is_editable_install.cache_info = _is_editable_install_cached.cache_info
 
 
 _NESTING_SUPPORTED = sys.version_info < (3, 14)
