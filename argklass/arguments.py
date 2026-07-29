@@ -318,7 +318,16 @@ def deduce_add_arguments(field, docstring):
         ftype = leaf_type(ftype)
         required = False
 
-    if is_list(ftype, field.default):
+    if is_list(ftype, field.default) and action not in (
+        "append",
+        "append_const",
+        "count",
+        "store_true",
+        "store_false",
+        "store_const",
+        "help",
+        "version",
+    ):
         nargs = "+"
         ftype = leaf_type(ftype)
 
