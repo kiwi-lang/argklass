@@ -102,7 +102,13 @@ class TestFieldHelpers:
 
     def test_argument_with_metadata(self):
         f = argument(default=5, metadata={"custom": "val"})
-        assert f.metadata.get("custom") == "val"
+        assert f.metadata["kwargs"].get("custom") == "val"
+
+    def test_argument_custom_flags(self):
+        f = argument("-x", "--exclude", default=None)
+        assert f.metadata["args"] == ("-x", "--exclude")
+        assert f.metadata["kwargs"]["_kind"] == "argument"
+        assert f.default is None
 
 
 class TestTypeHelpers:
@@ -251,6 +257,23 @@ class TestArgumentParser:
 
     def test_option_strings_no_underscore(self):
         assert _option_strings("simple") == ["--simple"]
+
+    def test_option_strings_appends_custom_flags(self):
+        flags = _option_strings("exclude", ["-x"])
+        assert flags == ["--exclude", "-x"]
+
+    def test_custom_short_flag_parsing(self):
+        @dataclass
+        class ExcludeArgs:
+            """exclude args"""
+            exclude: Optional[str] = argument("-x", default=None)  # hosts
+
+        parser = ArgumentParser(dataclass=ExcludeArgs)
+        args = parser.parse_args(["-x", "node1,node2"])
+        assert args.exclude == "node1,node2"
+
+        args = parser.parse_args(["--exclude", "node3"])
+        assert args.exclude == "node3"
 
     def test_add_flag_true_default(self):
         grp = argparse.ArgumentParser().add_argument_group("test")

@@ -26,6 +26,7 @@ class Subparser:
 
 
 def argument(
+    *args,
     default=MISSING,
     default_factory=MISSING,
     init=True,
@@ -85,7 +86,10 @@ def argument(
         repr=repr,  #
         hash=hash,  #
         compare=compare,  #
-        metadata=kwargs,  #
+        metadata={
+            "args": args,
+            "kwargs": kwargs,  #
+        }
     )
 
 
@@ -155,12 +159,36 @@ def cvt_type(hint):
         return hint
 
 
-def _option_strings(name):
+def _split_argument_metadata(field):
+    """Unpack ``argument(*args, **kwargs)`` metadata.
+
+    New layout::
+
+        {"args": ("-x", "--exclude"), "kwargs": {"_kind": "argument", ...}}
+
+    Legacy / other helpers still use a flat metadata dict with ``_kind``.
+    Returns ``(extra_option_strings, flat_kwargs)``.
+    """
+    meta = field.metadata or {}
+    if "args" in meta and "kwargs" in meta:
+        return tuple(meta.get("args") or ()), dict(meta["kwargs"])
+    return (), dict(meta)
+
+
+def _option_strings(name, flag_append=None):
     """Return option strings for a named argument, including the dash variant as an alias."""
+    if flag_append is None:
+        flag_append = []
+
     flags = ["--" + name]
     dash_name = name.replace("_", "-")
     if dash_name != name:
         flags.append("--" + dash_name)
+
+    for flag in flag_append:
+        if flag not in flags:
+            flags.append(flag)
+
     return flags
 
 
@@ -281,7 +309,8 @@ class _TupleStoreAction(argparse._StoreAction):
 def deduce_add_arguments(field, docstring):
     ftype = _get_type_hint(field.type, field.default)
     required = True
-    action = field.metadata.get("action")
+    _, meta_kwargs = _split_argument_metadata(field)
+    action = meta_kwargs.get("action")
     nargs = None
 
     if is_optional(ftype, field.default):
@@ -311,8 +340,8 @@ def deduce_add_arguments(field, docstring):
         required = False
 
     choices = None
-    if field.metadata:
-        choices = field.metadata.get("choices")
+    if meta_kwargs:
+        choices = meta_kwargs.get("choices")
         required = False
 
     positional = False
@@ -340,16 +369,17 @@ def deduce_add_arguments(field, docstring):
     return positional, required, kwargs
 
 
-def _flag(name, positional=False):
+def _flag(name, positional=False, extra=None):
     if positional:
         return [name]
-    return _option_strings(name)
+    return _option_strings(name, list(extra) if extra else None)
 
 
 def _add_argument(
     group: argparse._ArgumentGroup, field, name, docstring
 ) -> argparse.Action:
     positional, required, kwargs = deduce_add_arguments(field, docstring)
+    extra, _ = _split_argument_metadata(field)
 
     if "." in name and positional:
         required = True
@@ -357,14 +387,14 @@ def _add_argument(
 
     # name = name.replace("_", "-")
 
-    if positional:
+    if positional and not extra:
         return group.add_argument(
             name,
             **kwargs,
         )
     else:
         return group.add_argument(
-            *_option_strings(name),
+            *_option_strings(name, list(extra) if extra else None),
             dest=name,
             required=not positional and required,
             **kwargs,
@@ -444,7 +474,7 @@ def add_arguments(
         if pathname:
             name = f"{dest}.{name}"
 
-        meta = dict(field.metadata)
+        extra_flags, meta = _split_argument_metadata(field)
         special_argument = meta.pop("_kind", None)
         docstring = docstr.find_field(field)
 
@@ -498,10 +528,18 @@ def add_arguments(
                 if v is not None:
                     meta.setdefault(k, v)
 
-            if not positional:
+            # Custom flags (e.g. argument("-x")) force an optional and are
+            # appended to the auto-generated --field-name strings.
+            if extra_flags:
                 meta.setdefault("dest", field.name)
-
-            group.add_argument(*_flag(field.name, positional), **meta)
+                group.add_argument(
+                    *_option_strings(field.name, list(extra_flags)),
+                    **meta,
+                )
+            else:
+                if not positional:
+                    meta.setdefault("dest", field.name)
+                group.add_argument(*_flag(field.name, positional), **meta)
             continue
 
         if is_dataclass(field.type):
