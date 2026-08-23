@@ -4,8 +4,10 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import enum
+import types
 import typing
-from copy import deepcopy
+import warnings
+from copy import copy, deepcopy
 from dataclasses import MISSING, fields, is_dataclass
 from typing import get_type_hints
 
@@ -210,14 +212,17 @@ def _add_flag(group, field, name, docstring):
 
 
 def is_optional(type_hint, value):
+    # `typing.get_origin`/`get_args` handle both `typing.Union[X, None]` /
+    # `typing.Optional[X]` (origin `typing.Union`) and PEP 604 `X | None`
+    # (origin `types.UnionType`, no `__origin__` attribute at all) uniformly.
     try:
-        return type_hint.__origin__ is typing.Optional or (
-            type_hint.__origin__ is typing.Union
-            and len(type_hint.__args__) == 2
-            and type_hint.__args__[1] is type(None)
-        )
+        origin = typing.get_origin(type_hint)
+        if origin is typing.Union or origin is types.UnionType:
+            args = typing.get_args(type_hint)
+            return len(args) == 2 and args[1] is type(None)
     except Exception:
-        return False
+        pass
+    return False
 
 
 def is_list(type_hint, value):
@@ -478,10 +483,40 @@ def add_arguments(
         group_dest = dest or dataclass.__name__
         current_path = _group_path + [group_dest]
 
+    # `from __future__ import annotations` (PEP 563) turns every annotation in
+    # the *defining* module into a plain string — including a nested
+    # dataclass field's type, which would otherwise make `is_dataclass(...)`
+    # below silently return False and flatten what should be its own section.
+    # Resolve them all upfront using the dataclass's own module globals, so
+    # this traversal behaves the same whether or not the caller's module uses
+    # the future import.
+    try:
+        resolved_hints = get_type_hints(dataclass)
+    except Exception as exc:
+        warnings.warn(
+            f"argklass: could not resolve type hints for "
+            f"{dataclass.__module__}.{dataclass.__qualname__} ({exc!r}). "
+            "Falling back to raw (possibly stringified) annotations for it — "
+            "if it has a nested-dataclass field, that field will NOT be "
+            "detected as its own section/type. Usually means a type used in "
+            "its annotations isn't importable from that module's top level "
+            "(e.g. only under `if TYPE_CHECKING:`).",
+            stacklevel=2,
+        )
+        resolved_hints = {}
+
     for field in fields(dataclass):
         name = field.name
         if pathname:
             name = f"{dest}.{name}"
+
+        real_type = resolved_hints.get(field.name, field.type)
+        if real_type is not field.type:
+            # Copy rather than mutate — `fields()` returns the dataclass's own
+            # shared Field objects, and other code (dataclasses.asdict, other
+            # argklass calls, ...) still expects their original `.type`.
+            field = copy(field)
+            field.type = real_type
 
         extra_flags, meta = _split_argument_metadata(field)
         special_argument = meta.pop("_kind", None)
