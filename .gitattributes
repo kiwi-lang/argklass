@@ -1,0 +1,8 @@
+# Line endings: LF in the repository and in the working tree, on every
+# platform. Without this, any tool writing in text mode on Windows silently
+# turns a file CRLF -- which is how this repo ended up mixed.
+* text=auto eol=lf
+
+# The exceptions: cmd.exe can mis-parse a batch file that has LF-only endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
