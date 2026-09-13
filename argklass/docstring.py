@@ -34,6 +34,10 @@ class DocstringIterator:
             recognized = 0
             started = False
             docstring_lines = []
+            # Where the class docstring ended, and so where a later
+            # find_field() should start looking. 0 when there is none: the
+            # fields begin at the top of the body.
+            end = 0
 
             for i, line in enumerate(source):
                 if "@dataclass" in line:
@@ -44,26 +48,40 @@ class DocstringIterator:
                     recognized += 1
                     continue
 
-                if recognized == 2 and not started and docstring_oneline.match(line):
-                    docstring_lines.append(line.strip()[3:-3])
-                    break
-
-                if recognized == 2 and not started and docstring_start.match(line):
-                    started = True
-                    docstring_lines.append(line.strip()[3:])
+                if recognized < 2:
                     continue
 
-                if started and docstring_end.match(line):
-                    docstring_lines.append(line.strip()[:-3])
-                    started = False
+                if not started:
+                    if not line.strip():
+                        continue
+
+                    if docstring_oneline.match(line):
+                        docstring_lines.append(line.strip()[3:-3])
+                        end = i
+                        break
+
+                    if docstring_start.match(line):
+                        started = True
+                        docstring_lines.append(line.strip()[3:])
+                        continue
+
+                    # The first real statement of the class body. A class
+                    # docstring can only be here, so there is not one -- and
+                    # scanning on would find a METHOD's docstring instead and
+                    # leave the cursor past every field, which is how a
+                    # dataclass with documented methods but no class docstring
+                    # used to lose the help text for all of its arguments.
                     break
 
-                if started:
-                    docstring_lines.append(line.strip())
-            else:
-                i = 0
+                if docstring_end.match(line):
+                    docstring_lines.append(line.strip()[:-3])
+                    started = False
+                    end = i
+                    break
 
-            cursor.i = i
+                docstring_lines.append(line.strip())
+
+            cursor.i = end
             if len(docstring_lines) > 0:
                 docstrings.append("\n".join(docstring_lines))
 

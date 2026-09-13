@@ -147,10 +147,14 @@ class ToolDef:
     argv_prefix: list[str]
     arg_metas: list[ArgMeta] = field(default_factory=list)
     _subparser: argparse.ArgumentParser | None = field(
-        default=None, repr=False, compare=False,
+        default=None,
+        repr=False,
+        compare=False,
     )
     _dispatch_chain: list[tuple[str, str]] = field(
-        default_factory=list, repr=False, compare=False,
+        default_factory=list,
+        repr=False,
+        compare=False,
     )
     """List of ``(dest, value)`` pairs to set on the Namespace for dispatch.
 
@@ -261,9 +265,13 @@ def _extract_tools(
                 new_chain = dispatch_chain + [(dest, name)]
 
                 if _has_subparsers(subparser):
-                    tools.extend(_extract_tools(
-                        subparser, new_prefix, new_chain,
-                    ))
+                    tools.extend(
+                        _extract_tools(
+                            subparser,
+                            new_prefix,
+                            new_chain,
+                        )
+                    )
                 else:
                     tool_name = "_".join(new_prefix)
                     description = (subparser.description or "").strip()
@@ -296,9 +304,7 @@ def _build_argv(
     argv = list(tool.argv_prefix)
 
     positional_order = [m.dest for m in tool.arg_metas if m.positional]
-    bool_map = {
-        m.dest: m for m in tool.arg_metas if m.store_true or m.store_false
-    }
+    bool_map = {m.dest: m for m in tool.arg_metas if m.store_true or m.store_false}
 
     # Positional arguments first (in definition order)
     for dest in positional_order:
@@ -362,11 +368,14 @@ def _namespace_from_dict(
             visited.add(gid)
 
             for action in group._group_actions:
-                if isinstance(action, (
-                    argparse._HelpAction,
-                    argparse._SubParsersAction,
-                    argparse._VersionAction,
-                )):
+                if isinstance(
+                    action,
+                    (
+                        argparse._HelpAction,
+                        argparse._SubParsersAction,
+                        argparse._VersionAction,
+                    ),
+                ):
                     continue
 
                 if hasattr(action, "_action_groups"):
@@ -467,9 +476,7 @@ class MCPServer:
         tool = self._tool_map.get(tool_name)
         if tool is None:
             known = ", ".join(sorted(self._tool_map))
-            raise ValueError(
-                f"Unknown tool {tool_name!r}. Available: {known}"
-            )
+            raise ValueError(f"Unknown tool {tool_name!r}. Available: {known}")
 
         cli = self._tool_cli[tool_name]
         fast = settings.mcp_fast_dispatch and tool._subparser is not None
@@ -576,9 +583,7 @@ class MCPServer:
             import asyncio
 
             loop = asyncio.get_running_loop()
-            text = await loop.run_in_executor(
-                None, call, name, arguments or {}
-            )
+            text = await loop.run_in_executor(None, call, name, arguments or {})
             return [TextContent(type="text", text=text)]
 
         if transport == "stdio":
@@ -631,10 +636,13 @@ class MCPServer:
 
         async def handle_sse(request):
             async with sse.connect_sse(
-                request.scope, request.receive, request._send,
+                request.scope,
+                request.receive,
+                request._send,
             ) as streams:
                 await server.run(
-                    streams[0], streams[1],
+                    streams[0],
+                    streams[1],
                     server.create_initialization_options(),
                 )
             return Response()
@@ -668,7 +676,8 @@ class MCPServer:
         async def run_server():
             async with transport.connect() as (read_stream, write_stream):
                 await server.run(
-                    read_stream, write_stream,
+                    read_stream,
+                    write_stream,
                     server.create_initialization_options(),
                 )
 
@@ -768,7 +777,9 @@ class MCPArgs:
     """Run an MCP server from one or more argklass CLI modules."""
 
     modules: List[str] = argument()  # Dotted import path(s) of CLI module(s)
-    transport: str = argument(default="stdio", choices=["stdio", "sse", "streamable-http"])  # MCP transport protocol
+    transport: str = argument(
+        default="stdio", choices=["stdio", "sse", "streamable-http"]
+    )  # MCP transport protocol
     name: str = None  # Server name shown to MCP clients
     host: str = "127.0.0.1"  # Bind address for sse/streamable-http
     port: int = 8000  # Port for sse/streamable-http
@@ -785,7 +796,10 @@ def _main():
     modules = [importlib.import_module(m) for m in args.modules]
     use_prefix = len(modules) > 1 and not args.no_prefix
     server = create_mcp_server(
-        modules[0], *modules[1:], name=args.name, prefix=use_prefix,
+        modules[0],
+        *modules[1:],
+        name=args.name,
+        prefix=use_prefix,
     )
     server.run(
         transport=args.transport,

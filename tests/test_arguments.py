@@ -132,18 +132,22 @@ class TestTypeHelpers:
 
     def test_is_optional_non_optional(self):
         from argklass.arguments import is_optional
+
         assert is_optional(int, 0) is False
 
     def test_is_list_non_list(self):
         from argklass.arguments import is_list
+
         assert is_list(int, 0) is False
 
     def test_is_tuple_non_tuple(self):
         from argklass.arguments import is_tuple
+
         assert is_tuple(int, 0) == 0
 
     def test_is_enum_non_enum(self):
         from argklass.arguments import is_enum
+
         assert is_enum(int, 0) is False
 
 
@@ -202,19 +206,25 @@ class TestEnumConversion:
 class TestTupleAction:
     def test_tuple_action_parsing(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument("--pair", action=tuple_action(Tuple[int, int]), default=(0, 0))
+        parser.add_argument(
+            "--pair", action=tuple_action(Tuple[int, int]), default=(0, 0)
+        )
         args = parser.parse_args(["--pair", "3,4"])
         assert args.pair == (3, 4)
 
     def test_tuple_action_separate_values(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument("--pair", action=tuple_action(Tuple[int, int]), nargs="*", default=(0, 0))
+        parser.add_argument(
+            "--pair", action=tuple_action(Tuple[int, int]), nargs="*", default=(0, 0)
+        )
         args = parser.parse_args(["--pair", "3", "4"])
         assert args.pair == (3, 4)
 
     def test_tuple_action_single_comma_string(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument("--pair", action=tuple_action(Tuple[int, int]), nargs="*", default=(0, 0))
+        parser.add_argument(
+            "--pair", action=tuple_action(Tuple[int, int]), nargs="*", default=(0, 0)
+        )
         args = parser.parse_args(["--pair", "10,20"])
         assert args.pair == (10, 20)
 
@@ -242,6 +252,7 @@ class TestArgumentParser:
 
     def test_parse_function(self, monkeypatch):
         import sys
+
         monkeypatch.setattr(sys, "argv", ["prog"])
         result = parse(ParseSimple)
         assert result.x == 5
@@ -266,6 +277,7 @@ class TestArgumentParser:
         @dataclass
         class ExcludeArgs:
             """exclude args"""
+
             exclude: Optional[str] = argument("-x", default=None)  # hosts
 
         parser = ArgumentParser(dataclass=ExcludeArgs)
@@ -294,6 +306,7 @@ class TestArgumentParser:
 
         class MyDC:
             pass
+
         assert _group(MyDC) == "MyDC"
 
 
@@ -363,7 +376,9 @@ class TestCacheAwareParseArgs:
 
         try:
             with pytest.raises(SystemExit):
-                cache_aware_parse_args(parser, ["--totally-wrong-arg"], rebuild_parser=rebuild_fn)
+                cache_aware_parse_args(
+                    parser, ["--totally-wrong-arg"], rebuild_parser=rebuild_fn
+                )
             rebuild_fn.assert_called_once()
         finally:
             thread_futures.clear()
@@ -388,7 +403,9 @@ class TestCacheAwareParseArgs:
         rebuild_fn = MagicMock(return_value=new_parser)
 
         try:
-            args, p = cache_aware_parse_args(parser, ["--name", "rebuilt"], rebuild_parser=rebuild_fn)
+            args, p = cache_aware_parse_args(
+                parser, ["--name", "rebuilt"], rebuild_parser=rebuild_fn
+            )
             assert args.name == "rebuilt"
             rebuild_fn.assert_called_once()
         finally:
@@ -459,3 +476,96 @@ class TestFlatGroups:
             parser.add_arguments(PnOuter, create_group=True)
             args = parser.parse_args(["--val", "99"])
             assert isinstance(args, argparse.Namespace)
+
+
+# ---------------------------------------------------------------------------
+# parse / parse_known_args: the one-call helpers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PkInner:
+    depth: int = 1  # how deep
+
+
+@dataclass
+class PkOpts:
+    name: str = "adamw"  # which one
+    rate: float = 3e-4  # how fast
+    inner: PkInner = dataclasses.field(default_factory=PkInner)
+
+
+class TestParseHelpers:
+    """These build a parser, parse, and hand back an instance of the dataclass.
+
+    ``ArgumentParser`` overrides ``parse_args`` to group the flat namespace back
+    into dataclasses; ``parse_known_args`` is a separate argparse entry point
+    that inherits none of that, so the helper has to group the result itself.
+    """
+
+    def test_parse_returns_an_instance(self):
+        from argklass.arguments import parse
+
+        cfg = parse(PkOpts, argv=["--name", "sgd"])
+        assert isinstance(cfg, PkOpts)
+        assert cfg.name == "sgd"
+        assert cfg.rate == 3e-4
+
+    def test_parse_known_args_returns_an_instance_and_the_leftovers(self):
+        from argklass.arguments import parse_known_args
+
+        cfg, rest = parse_known_args(PkOpts, argv=["--rate", "0.5", "--other", "x"])
+        assert isinstance(cfg, PkOpts)
+        assert cfg.rate == 0.5
+        assert rest == ["--other", "x"]
+
+    def test_nested_dataclass_comes_back_too(self):
+        from argklass.arguments import parse
+
+        cfg = parse(PkOpts, argv=[])
+        assert isinstance(cfg.inner, PkInner)
+        assert cfg.inner.depth == 1
+
+    def test_argv_is_used_instead_of_sys_argv(self, monkeypatch):
+        from argklass.arguments import parse
+
+        monkeypatch.setattr(sys, "argv", ["prog", "--name", "from-sys-argv"])
+        assert parse(PkOpts, argv=["--name", "from-argv"]).name == "from-argv"
+
+    def test_dest_reaches_the_parser(self):
+        """dest/title name the parsed group, and _group() recomputes that name
+        to read it back -- passing one and not the other used to miss."""
+        from argklass.arguments import parse
+
+        cfg = parse(PkOpts, argv=["--name", "sgd"], dest="optimizer")
+        assert isinstance(cfg, PkOpts)
+        assert cfg.name == "sgd"
+
+    def test_title_reaches_the_parser(self):
+        from argklass.arguments import parse
+
+        cfg = parse(PkOpts, argv=[], title="Optimizer options")
+        assert isinstance(cfg, PkOpts)
+
+    def test_parser_kwargs_still_go_to_argumentparser(self):
+        from argklass.arguments import argument_parser
+
+        parser = argument_parser(PkOpts, prog="mytool")
+        assert parser.prog == "mytool"
+
+    def test_parse_known_groups_a_parser_you_built_yourself(self):
+        from argklass.arguments import add_arguments, parse_known
+
+        parser = ArgumentParser(group_by_dataclass=True)
+        add_arguments(parser, PkOpts, dest="opts", create_group=True)
+
+        grouped, rest = parse_known(parser, ["--name", "adam", "--stray"])
+        assert isinstance(grouped.opts, PkOpts)
+        assert grouped.opts.name == "adam"
+        assert rest == ["--stray"]
+
+    def test_add_arguments_method_accepts_a_title(self):
+        parser = ArgumentParser(group_by_dataclass=True)
+        parser.add_arguments(PkOpts, create_group=True, title="Custom title")
+        titles = [g.title for g in parser._action_groups]
+        assert "Custom title" in titles

@@ -91,7 +91,7 @@ def argument(
         metadata={
             "args": args,
             "kwargs": kwargs,  #
-        }
+        },
     )
 
 
@@ -438,6 +438,24 @@ def _group_target(parser, root, nested_groups):
     return root
 
 
+def _register_pathname_dataclass(root, dest, dataclass):
+    """Record that ``--<dest>.<field>`` arguments came from *dataclass*.
+
+    ``pathname=True`` names nested dataclasses by path instead of giving each
+    one an argument group, which leaves nothing on the parser saying what
+    ``outer.inner`` was. Without this the parsed result can only be nested
+    dicts; groupargs reads this back to rebuild the instances.
+    """
+    registry = getattr(root, "_pathname_dataclasses", None)
+    if registry is None:
+        registry = {}
+        try:
+            root._pathname_dataclasses = registry
+        except AttributeError:  # pragma: no cover - exotic parser objects
+            return
+    registry[dest] = dataclass
+
+
 def add_arguments(
     parser: argparse.ArgumentParser,
     dataclass,
@@ -456,6 +474,9 @@ def add_arguments(
 
     if _root is None:
         _root = parser
+
+    if pathname and dest:
+        _register_pathname_dataclass(_root, dest, dataclass)
 
     if _group_path is None:
         _group_path = []
@@ -507,7 +528,9 @@ def add_arguments(
 
     for field in fields(dataclass):
         name = field.name
-        if pathname:
+        # `dest` is None at the top level unless the caller named one; without
+        # this guard every flag would be prefixed with a literal "None.".
+        if pathname and dest:
             name = f"{dest}.{name}"
 
         real_type = resolved_hints.get(field.name, field.type)
@@ -535,8 +558,11 @@ def add_arguments(
                 setattr(newgroup, "_parent_path", list(current_path))
 
             add_arguments(
-                newgroup, field.type, create_group=False,
-                _root=_root, _group_path=current_path + [name],
+                newgroup,
+                field.type,
+                create_group=False,
+                _root=_root,
+                _group_path=current_path + [name],
             )
             continue
 
@@ -562,7 +588,13 @@ def add_arguments(
             meta.setdefault("description", docstring)
 
             group = subparser.add_parser(**meta)
-            add_arguments(group, field.type, create_group=False, _root=_root, _group_path=current_path)
+            add_arguments(
+                group,
+                field.type,
+                create_group=False,
+                _root=_root,
+                _group_path=current_path,
+            )
             continue
 
         if special_argument == "argument":
@@ -587,12 +619,33 @@ def add_arguments(
             continue
 
         if is_dataclass(field.type):
+            target_parser = group
+            nested_create_group = create_group
+
+            if pathname:
+                # Path-named nesting puts every flag in one flat list, which is
+                # unreadable past a dozen. Give each nested dataclass a group
+                # titled by its dotted path -- purely for the help output: the
+                # dests still carry the path, and _pathname_only tells
+                # groupargs to leave the parsed shape to them.
+                # Always on the root, never nested inside the parent's group:
+                # the dotted title already says where it sits, nesting argument
+                # groups is deprecated in argparse, and a flat list of titled
+                # sections is what actually reads well.
+                section = _root.add_argument_group(
+                    title=name,
+                    description=docstring or "",
+                )
+                setattr(section, "_pathname_only", True)
+                target_parser = section
+                nested_create_group = False
+
             add_arguments(
-                group,
+                target_parser,
                 field.type,
                 dest=name,
                 pathname=pathname,
-                create_group=create_group,
+                create_group=nested_create_group,
                 _root=_root,
                 _group_path=current_path,
             )
@@ -638,9 +691,16 @@ class ArgumentParser(argparse.ArgumentParser):
         if self.dataclass is not argparse.Namespace:
             self.add_arguments(self.dataclass, create_group=False)
 
-    def add_arguments(self, dataclass, dest=None, pathname=False, create_group=False):
+    def add_arguments(
+        self, dataclass, dest=None, pathname=False, create_group=False, title=None
+    ):
         add_arguments(
-            self, dataclass, dest=dest, pathname=pathname, create_group=create_group
+            self,
+            dataclass,
+            title=title,
+            dest=dest,
+            pathname=pathname,
+            create_group=create_group,
         )
 
     def add_subparsers(self, *args, **kwargs):
@@ -675,26 +735,58 @@ class ArgumentParser(argparse.ArgumentParser):
 
 def argument_parser(dataclass, *args, title=None, dest=None, **kwargs):
     parser = ArgumentParser(*args, **kwargs, group_by_dataclass=True)
-    parser.add_arguments(dataclass, create_group=True)
+    # title/dest decide what the parsed group is CALLED, and _group() below
+    # computes the same name to read it back -- so they have to reach
+    # add_arguments, or the two disagree and the lookup misses.
+    add_arguments(parser, dataclass, title=title, dest=dest, create_group=True)
     return parser
 
 
-def parse(dataclass, *args, title=None, dest=None, **kwargs):
-    p = argument_parser(dataclass, *args, title=None, dest=None, **kwargs)
+def parse(dataclass, *args, argv=None, title=None, dest=None, **kwargs):
+    """Build a parser for *dataclass* and return one instance of it.
+
+    Positional/keyword extras go to :class:`ArgumentParser` (``prog=``,
+    ``description=``, ...); pass ``argv`` to parse something other than
+    ``sys.argv``.
+    """
+    p = argument_parser(dataclass, *args, title=title, dest=dest, **kwargs)
 
     gp = _group(dataclass, title=title, dest=dest)
 
-    return getattr(p.parse_args(), gp)
+    return getattr(p.parse_args(argv), gp)
 
 
-def parse_known_args(dataclass, *args, title=None, dest=None, **kwargs):
-    p = argument_parser(dataclass, *args, title=None, dest=None, **kwargs)
+def parse_known_args(dataclass, *args, argv=None, title=None, dest=None, **kwargs):
+    """:func:`parse`, also returning the arguments it did not recognise."""
+    p = argument_parser(dataclass, *args, title=title, dest=dest, **kwargs)
 
     gp = _group(dataclass, title=title, dest=dest)
 
-    args, others = p.parse_known_args()
+    namespace, others = parse_known(p, argv)
 
-    return getattr(args, gp), others
+    return getattr(namespace, gp), others
+
+
+def parse_known(parser, argv=None):
+    """``parse_known_args`` that groups its result, like ``parse_args`` does.
+
+    ``ArgumentParser`` overrides ``parse_args`` to group the flat namespace
+    into dataclasses, but argparse's ``parse_known_args`` is a separate entry
+    point and inherits none of that -- calling it returns the raw flat
+    namespace, where the grouped attribute this module looks for simply is not.
+    """
+    from .groupargs import group_by_dataclass
+
+    namespace, others = argparse.ArgumentParser.parse_known_args(parser, argv)
+
+    grouped = group_by_dataclass(
+        parser,
+        namespace,
+        parser.group_by_parser,
+        parser.group_by_dataclass,
+        parser.dataclass,
+    )
+    return grouped, others
 
 
 def parse_args(parser, *args, config=None, **kwargs):

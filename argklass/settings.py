@@ -79,16 +79,26 @@ _NESTING_SUPPORTED = sys.version_info < (3, 14)
 @dataclass
 class Settings:
     cache_enabled: bool = ctx.configfield("cache.enabled", bool, default=True)
-    cache_skip_editable: bool = ctx.configfield("cache.skip_editable", bool, default=True)
+    cache_skip_editable: bool = ctx.configfield(
+        "cache.skip_editable", bool, default=True
+    )
     cache_async_update: bool = ctx.configfield("cache.async_update", bool, default=True)
-    parallel_max_workers: int = ctx.configfield("parallel.max_workers", int, default=None)
+    parallel_max_workers: int = ctx.configfield(
+        "parallel.max_workers", int, default=None
+    )
     format_column_width: int = ctx.configfield("format.column_width", int, default=50)
-    format_description_width: int = ctx.configfield("format.description_width", int, default=80)
+    format_description_width: int = ctx.configfield(
+        "format.description_width", int, default=80
+    )
     nested_groups: bool = ctx.configfield(
-        "nested_groups", bool, default=_NESTING_SUPPORTED,
+        "nested_groups",
+        bool,
+        default=_NESTING_SUPPORTED,
     )
     mcp_fast_dispatch: bool = ctx.configfield(
-        "mcp.fast_dispatch", bool, default=False,
+        "mcp.fast_dispatch",
+        bool,
+        default=False,
     )
 
 

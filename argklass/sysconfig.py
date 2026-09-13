@@ -393,6 +393,46 @@ def parse_scalar(raw: str) -> Any:
     return value
 
 
+def revalidate(config: Any, names) -> None:
+    """Re-run ``__post_init__`` on every dataclass the dotted *names* touched.
+
+    :func:`set_path` assigns straight to the attribute, which is what a caller
+    poking one value programmatically wants. An override off a command line or
+    a config file is untrusted input though, and skipping the dataclass's own
+    checks lets ``lr_scheduler.name=onecycle`` through to become something else
+    entirely at build time.
+
+    Ancestors are re-run too, innermost first: a parent's ``__post_init__`` may
+    cross-check fields its children just changed.
+    """
+    import inspect
+
+    seen: set[int] = set()
+    for name in names:
+        parts = name.split(".")
+        for depth in range(len(parts) - 1, -1, -1):
+            prefix = ".".join(parts[:depth])
+            try:
+                container = get_path(config, prefix) if prefix else config
+            except KeyError:
+                continue
+
+            if not (is_dataclass(container) and not isinstance(container, type)):
+                continue
+            if id(container) in seen:
+                continue
+            seen.add(id(container))
+
+            post_init = getattr(type(container), "__post_init__", None)
+            if post_init is None:
+                continue
+            # An __post_init__ taking InitVar parameters cannot be replayed
+            # without them; leave those alone rather than guess.
+            if len(inspect.signature(post_init).parameters) != 1:
+                continue
+            post_init(container)
+
+
 def parse_overrides(overrides: list[str] | tuple[str, ...]) -> dict[str, Any]:
     """Turn CLI ``key.path=value`` strings into a dotted dict.
 
@@ -799,21 +839,23 @@ class ConfigContext:
                     raw, ftype, full
                 ) if ftype is not None else parse_scalar(raw)
 
-    def defer(self, name: str, etype: Any = MISSING, default: Any = MISSING) -> Any:
-        """An :meth:`option` lookup to perform at call time. See :func:`defer`."""
+    def deferred(
+        self, name: str | None = None, etype: Any = MISSING, default: Any = MISSING
+    ) -> Any:
+        """An :meth:`option` lookup to perform at call time. See :func:`deferred`."""
         etype, default = _split_option_args(etype, default)
         return Deferred(name, etype, default, ctx=self)
 
-    def defer_section(
+    def deferred_section(
         self,
-        name: str,
+        name: str | None = None,
         cls: type | None = None,
         *,
         env: bool = True,
         default: Any = MISSING,
     ) -> Any:
         """A :meth:`section` lookup to perform at call time. See
-        :func:`defer_section`."""
+        :func:`deferred_section`."""
         return Deferred(
             name, cls=cls, kind="section", env=env, default=default, ctx=self
         )
@@ -872,6 +914,7 @@ class ConfigContext:
                 overrides = parse_overrides(overrides)
             for name, value in overrides.items():
                 set_path(config, name, value)
+            revalidate(config, overrides)
         if activate:
             self.set_config(config)
         return config
@@ -1216,25 +1259,33 @@ def overrides_snapshot() -> dict[str, Any]:
 # call time: it captures whatever was resolvable at import and stays
 # there forever, looking config-driven while ignoring the config.
 #
-# `defer()` records the lookup instead of performing it, and
-# `@resolve_options` performs it on every call.
+# `deferred()` records the lookup instead of performing it, and
+# `@resolved` performs it on every call, reading the parameter's
+# annotation to decide what to fetch:
+#
+#     @resolved
+#     def scene_sim(cfg: SimulationConfig = deferred("simulation")):
+#         ...
+#
+# A dataclass annotation means the whole section; anything else means a
+# single option, coerced to the annotated type.
 # ===================================================================
 
 
 class Deferred:
     """A config lookup recorded now and performed at call time.
 
-    Produced by :func:`defer` / :func:`defer_section`, resolved by the
-    :func:`resolve_options` decorator. Reaching one of these at runtime means
-    the decorator is missing -- so attribute access and numeric conversion say
-    so rather than failing obscurely.
+    Produced by :func:`deferred` / :func:`deferred_section`, performed by the
+    :func:`resolved` decorator. Reaching one of these at runtime means the
+    decorator is missing -- so attribute access and numeric conversion say so
+    rather than failing obscurely.
     """
 
     __slots__ = ("name", "etype", "default", "cls", "kind", "env", "ctx")
 
     def __init__(
         self,
-        name: str,
+        name: str | None = None,
         etype: Any = None,
         default: Any = MISSING,
         *,
@@ -1251,8 +1302,47 @@ class Deferred:
         self.env = env
         self.ctx = ctx
 
+    def specialize(
+        self, annotation: Any = None, param_name: str | None = None
+    ) -> "Deferred":
+        """A copy of this lookup with an *annotation* (and parameter name) filled in.
+
+        This is where ``cfg: SimulationConfig = deferred("simulation")`` becomes
+        a section lookup and ``lr: float = deferred("optim.lr")`` an option one:
+        a dataclass annotation names the section's class, any other annotation
+        is the option's type. Anything stated explicitly at the call to
+        :func:`deferred` wins over the annotation.
+        """
+        name = self.name if self.name is not None else param_name
+        kind, cls, etype = self.kind, self.cls, self.etype
+
+        annotation = _strip_optional(annotation) if annotation is not None else None
+        is_config_class = isinstance(annotation, type) and is_dataclass(annotation)
+
+        if annotation is not None:
+            if kind == "section":
+                cls = (
+                    cls
+                    if cls is not None
+                    else (annotation if is_config_class else None)
+                )
+            elif cls is None and etype is None:
+                if is_config_class:
+                    kind, cls = "section", annotation
+                else:
+                    etype = annotation
+
+        return Deferred(
+            name, etype, self.default, cls=cls, kind=kind, env=self.env, ctx=self.ctx
+        )
+
     def resolve(self) -> Any:
         """Perform the lookup now, against the currently active config."""
+        if self.name is None:
+            raise RuntimeError(
+                "deferred() without a name takes it from the parameter it is the "
+                "default of -- which only works inside a @resolved function"
+            )
         ctx = self.ctx if self.ctx is not None else _default_ctx
         if self.kind == "section":
             return ctx.section(self.name, self.cls, env=self.env, default=self.default)
@@ -1260,12 +1350,13 @@ class Deferred:
 
     def __repr__(self) -> str:
         what = "section" if self.kind == "section" else "option"
-        return f"<deferred {what} {self.name!r}; resolved by @resolve_options>"
+        name = "<from parameter name>" if self.name is None else repr(self.name)
+        return f"<deferred {what} {name}; resolved by @resolved>"
 
     def _unresolved(self, what: str) -> RuntimeError:
         return RuntimeError(
             f"{self!r} was used as {what} without being resolved -- decorate the "
-            f"function with @resolve_options, or call .resolve() yourself"
+            f"function with @resolved, or call .resolve() yourself"
         )
 
     def __getattr__(self, item: str) -> Any:
@@ -1288,81 +1379,108 @@ class Deferred:
         raise self._unresolved("an iterable")
 
 
-def defer(name: str, etype: Any = MISSING, default: Any = MISSING) -> Any:
-    """An :func:`option` lookup to perform at call time, not at import time.
+def deferred(
+    name: str | None = None, etype: Any = MISSING, default: Any = MISSING
+) -> Any:
+    """A config lookup to perform at call time, not at import time.
 
-    Use it for a function's default argument, and decorate the function with
-    :func:`resolve_options`::
+    Use it for a function's default argument and decorate the function with
+    :func:`resolved`; the parameter's annotation says what to fetch::
 
-        @resolve_options
-        def train(lr=defer("optim.lr"), steps=defer("steps", 1000)):
-            ...
+        @resolved
+        def scene_sim(cfg: SimulationConfig = deferred("simulation")):
+            ...                  # the whole section, as a SimulationConfig
 
-    ``train()`` then reads the config as it is *when called*; ``train(lr=1e-5)``
-    still wins. Takes the same arguments as :func:`option`, and resolves against
-    the default context -- use :meth:`ConfigContext.defer` for another one.
+        @resolved
+        def train(lr: float = deferred("optim.lr"), steps=deferred("steps", 1000)):
+            ...                  # single options; `steps` keeps its plain default
+
+    A dataclass annotation fetches the section, anything else a single option
+    coerced to that type, and an unannotated parameter a single option as held.
+    The name may be omitted when it matches the parameter name -- ``sim_cfg:
+    SimulationConfig = deferred()`` looks up ``"sim_cfg"``.
+
+    The lookup runs against the config *as it is when the function is called*,
+    and an explicitly passed argument still wins. Resolves against the default
+    context -- use :meth:`ConfigContext.deferred` for another one.
     """
-    return _default_ctx.defer(name, etype, default)
+    return _default_ctx.deferred(name, etype, default)
 
 
-def defer_section(
-    name: str,
+def deferred_section(
+    name: str | None = None,
     cls: type | None = None,
     *,
     env: bool = True,
     default: Any = MISSING,
 ) -> Any:
-    """A :func:`section` lookup to perform at call time. See :func:`defer`::
+    """A :func:`section` lookup to perform at call time.
 
-    @resolve_options
-    def build_loader(cfg=defer_section("data", LoaderConfig)):
-        ...
+    ``deferred()`` on a dataclass-annotated parameter already does this; reach
+    for this spelling when there is no annotation to read, or to pass ``env`` /
+    ``default``::
+
+        @resolved
+        def build_loader(cfg=deferred_section("data", LoaderConfig)):
+            ...
     """
-    return _default_ctx.defer_section(name, cls, env=env, default=default)
+    return _default_ctx.deferred_section(name, cls, env=env, default=default)
 
 
-def resolve_options(fn):
-    """Resolve every :func:`defer` default of *fn* on each call.
+def resolved(fn):
+    """Perform *fn*'s :func:`deferred` lookups on every call.
 
-    Arguments the caller passes explicitly are left alone, so a deferred default
-    behaves like any other default -- except that it reads the config at call
-    time instead of at import time.
+    Each deferred default is specialized once, at decoration time, against the
+    parameter's annotation (see :meth:`Deferred.specialize`), then resolved per
+    call. Arguments the caller passes explicitly are left alone, so a deferred
+    default behaves like any other default -- except that it reads the config at
+    call time instead of at import time.
     """
     import functools
     import inspect
 
     signature = inspect.signature(fn)
-    deferred = [
-        name
+    try:
+        hints = typing.get_type_hints(fn)
+    except Exception:  # unresolvable annotation -- fall back to no hints
+        hints = {}
+
+    plan = {
+        name: p.default.specialize(hints.get(name), name)
         for name, p in signature.parameters.items()
         if isinstance(p.default, Deferred)
-    ]
-    if not deferred:
+    }
+    if not plan:
         raise TypeError(
-            f"@resolve_options: {fn.__qualname__} has no defer()/defer_section() "
-            f"defaults to resolve"
+            f"@resolved: {fn.__qualname__} has no deferred() defaults to resolve"
         )
 
-    def _resolved(args, kwargs):
+    defaults = {name: signature.parameters[name].default for name in plan}
+
+    def _resolve_args(args, kwargs):
         bound = signature.bind(*args, **kwargs)
         bound.apply_defaults()
         for name, value in bound.arguments.items():
-            if isinstance(value, Deferred):
-                bound.arguments[name] = value.resolve()
+            if not isinstance(value, Deferred):
+                continue
+            # The parameter's own default resolves through its specialized plan;
+            # a Deferred handed in by the caller resolves on its own terms.
+            lookup = plan[name] if value is defaults.get(name) else value
+            bound.arguments[name] = lookup.resolve()
         return bound
 
     if inspect.iscoroutinefunction(fn):
 
         @functools.wraps(fn)
         async def async_wrapper(*args, **kwargs):
-            bound = _resolved(args, kwargs)
+            bound = _resolve_args(args, kwargs)
             return await fn(*bound.args, **bound.kwargs)
 
         return async_wrapper
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        bound = _resolved(args, kwargs)
+        bound = _resolve_args(args, kwargs)
         return fn(*bound.args, **bound.kwargs)
 
     return wrapper

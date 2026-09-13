@@ -1,4 +1,5 @@
 import argparse
+from dataclasses import fields, is_dataclass
 from typing import Any
 
 from .argformat import ArgumentFormaterBase
@@ -13,13 +14,37 @@ def _getattr(obj, name, default):
     return value
 
 
+def _as_mapping(value):
+    """The fields of an already-built group, back as a plain dict.
+
+    A group can be re-entered -- ``--a.b.x`` and ``--a.b.y`` both pass through
+    ``a.b`` -- and by then it may be a dict (built by an earlier action), or a
+    Namespace / dataclass instance (converted by an earlier ``pop_group``).
+    All three have to keep accumulating into the same group.
+    """
+    if isinstance(value, dict):
+        return value
+
+    if is_dataclass(value) and not isinstance(value, type):
+        # A copy, not __dict__: it gets re-converted on the way out, and a
+        # dataclass declared with __slots__ has no __dict__ at all.
+        return {f.name: getattr(value, f.name) for f in fields(value)}
+
+    return vars(value)
+
+
 class GroupArguments(ArgumentFormaterBase):
-    def __init__(self, args, dataclass=argparse.Namespace):
+    def __init__(self, args, dataclass=argparse.Namespace, path_dataclasses=None):
         super().__init__()
 
         self.args = args
         self.root = dict()
         self.stack = [(self.root, None, dataclass)]
+        # Dotted path -> the dataclass it was generated from, for arguments
+        # named by path (``pathname=True``) rather than grouped. Those create
+        # no argparse group, so this is the only record of what each level of
+        # ``--outer.inner.field`` was built from.
+        self.path_dataclasses = path_dataclasses or {}
         self.group_by_parser = False
         self.group_parser_name = "dest"
         self.group_by_dataclass = False
@@ -41,7 +66,7 @@ class GroupArguments(ArgumentFormaterBase):
         newgroup = self.current.get(name)
 
         if newgroup is not None:
-            newgroup = vars(newgroup)
+            newgroup = _as_mapping(newgroup)
         else:
             newgroup = dict()
 
@@ -49,10 +74,16 @@ class GroupArguments(ArgumentFormaterBase):
         self.stack.append((newgroup, name, dataclass))
 
     def pop_group(self):
-        group, name, dataclass = self.stack.pop()
+        group, name, pushed = self.stack.pop()
 
-        if dataclass is not None:
+        dataclass = None
+        if pushed is not None:
             dataclass = self.dest_to_dataclass.get(name)
+            # Fall back to what new_group was handed, but only if it is a real
+            # dataclass: an un-registered path segment stays a plain dict, as
+            # it always has, and is rebuilt in convert() instead.
+            if dataclass is None and is_dataclass(pushed):
+                dataclass = pushed
 
         if dataclass is not None:
             try:
@@ -71,12 +102,42 @@ class GroupArguments(ArgumentFormaterBase):
 
         group, _, dataclass_default = self.stack.pop()
 
+        # Path-named arguments accumulate as nested dicts, because they create
+        # no argparse group to hang a type on. Rebuild them here, innermost
+        # first, so a parent is built from children that are already instances.
+        group = self._rebuild_paths(group, ())
+
         dataclass = dataclass or dataclass_default
 
         if dataclass is not None:
             group = dataclass(**group)
 
         return group
+
+    def _rebuild_paths(self, node, prefix: tuple):
+        """Turn the dict tree under *prefix* back into the dataclasses it came
+        from, bottom-up. Anything not registered is left exactly as it is."""
+        if not isinstance(node, dict):
+            return node
+
+        rebuilt = {
+            key: self._rebuild_paths(value, prefix + (key,))
+            for key, value in node.items()
+        }
+
+        dataclass = self.path_dataclasses.get(".".join(prefix))
+        if dataclass is None:
+            return rebuilt
+
+        try:
+            return dataclass(**rebuilt)
+        except TypeError as exc:
+            # Naming the path and the class beats argparse's own report, which
+            # would only say a keyword was unexpected.
+            raise TypeError(
+                f"could not rebuild {'.'.join(prefix) or '<root>'} as "
+                f"{dataclass.__name__}: {exc}"
+            ) from exc
 
     def __call__(self, parser: argparse.ArgumentParser, depth: int = 0) -> Any:
         for group in parser._action_groups:
@@ -90,6 +151,7 @@ class GroupArguments(ArgumentFormaterBase):
             if (
                 isinstance(group, argparse._ArgumentGroup)
                 and group.title not in self.ignore_groups
+                and not getattr(group, "_pathname_only", False)
                 and self.group_by_dataclass
             ):
                 if parent_path:
@@ -101,7 +163,13 @@ class GroupArguments(ArgumentFormaterBase):
                 self.new_group(dest, dataclass)
                 pop_group = True
 
-            self.dest_to_dataclass[dest] = dataclass
+            if not getattr(group, "_pathname_only", False):
+                # A cosmetic group (help formatting for path-named arguments)
+                # must not claim the name its dotted dests rebuild under, or
+                # the section is converted to a Namespace before _rebuild_paths
+                # can make it the dataclass it came from.
+                self.dest_to_dataclass[dest] = dataclass
+
             self.format_group(group, depth)
 
             if pop_group:
@@ -127,7 +195,11 @@ class GroupArguments(ArgumentFormaterBase):
             dest = _getattr(nested, "_dest", nested.title)
             pop_group = False
 
-            if self.group_by_dataclass and dest not in self.ignore_groups:
+            if (
+                self.group_by_dataclass
+                and dest not in self.ignore_groups
+                and not getattr(nested, "_pathname_only", False)
+            ):
                 self.new_group(dest, dataclass)
                 self.dest_to_dataclass[dest] = dataclass
                 pop_group = True
@@ -184,7 +256,9 @@ class GroupArguments(ArgumentFormaterBase):
 def group_by_dataclass(
     parser, args, group_by_parser, group_by_dataclass, dataclass=argparse.Namespace
 ):
-    gp = GroupArguments(args, dataclass)
+    gp = GroupArguments(
+        args, dataclass, path_dataclasses=getattr(parser, "_pathname_dataclasses", None)
+    )
     gp.group_by_parser = group_by_parser
     gp.group_by_dataclass = group_by_dataclass
     return gp.convert(parser)

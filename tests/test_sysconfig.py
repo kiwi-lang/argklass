@@ -24,8 +24,8 @@ from argklass.sysconfig import (
     config_fields,
     config_template,
     configfield,
-    defer,
-    defer_section,
+    deferred,
+    deferred_section,
     env_template,
     field_type,
     from_dict,
@@ -41,7 +41,8 @@ from argklass.sysconfig import (
     push_config,
     register_root,
     reset_config,
-    resolve_options,
+    resolved,
+    revalidate,
     save_config,
     section,
     set_config,
@@ -1626,14 +1627,14 @@ class TestSection:
 # Deferred defaults
 #
 # Python runs a default argument expression once, when the `def` executes --
-# at import time, before any config is loaded. defer() records the lookup so
-# @resolve_options can perform it per call instead.
+# at import time, before any config is loaded. deferred() records the lookup so
+# @resolved can perform it per call instead.
 # ===========================================================================
 
 
 class TestDeferredDefaults:
     def test_option_as_a_default_is_frozen_at_def_time(self):
-        """The problem defer() exists to solve, pinned so it stays visible."""
+        """The problem deferred() exists to solve, pinned so it stays visible."""
         set_config({"steps": 1})
 
         def eager(steps=option("steps", int, 0)):
@@ -1646,8 +1647,8 @@ class TestDeferredDefaults:
     def test_defer_reads_the_config_at_call_time(self):
         clear_config()
 
-        @resolve_options
-        def lazy(steps=defer("steps", int, 0)):
+        @resolved
+        def lazy(steps=deferred("steps", int, 0)):
             return steps
 
         set_config({"steps": 1})
@@ -1659,8 +1660,8 @@ class TestDeferredDefaults:
     def test_defining_it_needs_no_config(self):
         clear_config()
 
-        @resolve_options
-        def lazy(steps=defer("steps", int)):
+        @resolved
+        def lazy(steps=deferred("steps", int)):
             return steps
 
         # No config at definition time and no default: still fine until called.
@@ -1673,8 +1674,8 @@ class TestDeferredDefaults:
     def test_explicit_arguments_win(self):
         set_config({"steps": 1})
 
-        @resolve_options
-        def lazy(steps=defer("steps", int, 0)):
+        @resolved
+        def lazy(steps=deferred("steps", int, 0)):
             return steps
 
         assert lazy(5) == 5
@@ -1684,8 +1685,8 @@ class TestDeferredDefaults:
     def test_defer_section(self):
         clear_config()
 
-        @resolve_options
-        def build(cfg=defer_section("data", LoaderSection)):
+        @resolved
+        def build(cfg=deferred_section("data", LoaderSection)):
             return cfg
 
         set_config({"data": {"batch_size": 16}})
@@ -1697,8 +1698,8 @@ class TestDeferredDefaults:
     def test_deferred_section_sees_env_overrides(self, monkeypatch):
         set_config(RootSection())
 
-        @resolve_options
-        def build(cfg=defer_section("data")):
+        @resolved
+        def build(cfg=deferred_section("data")):
             return cfg
 
         monkeypatch.setenv("DATA_BATCH_SIZE", "64")
@@ -1708,8 +1709,8 @@ class TestDeferredDefaults:
     def test_other_defaults_are_untouched(self):
         set_config({"steps": 3})
 
-        @resolve_options
-        def lazy(steps=defer("steps", int, 0), tag="plain", *, flag=False):
+        @resolved
+        def lazy(steps=deferred("steps", int, 0), tag="plain", *, flag=False):
             return steps, tag, flag
 
         assert lazy() == (3, "plain", False)
@@ -1719,26 +1720,214 @@ class TestDeferredDefaults:
     def test_works_on_async_functions(self):
         set_config({"steps": 4})
 
-        @resolve_options
-        async def lazy(steps=defer("steps", int, 0)):
+        @resolved
+        async def lazy(steps=deferred("steps", int, 0)):
             return steps
 
         assert asyncio.run(lazy()) == 4
         clear_config()
 
     def test_decorator_without_deferred_defaults_is_an_error(self):
-        with pytest.raises(TypeError, match="no defer"):
+        with pytest.raises(TypeError, match="no deferred"):
 
-            @resolve_options
+            @resolved
             def plain(x=1):
                 return x
 
     def test_an_unresolved_deferred_says_what_is_missing(self):
-        d = defer("optim.lr")
-        assert "resolve_options" in repr(d)
-        with pytest.raises(RuntimeError, match="resolve_options"):
+        d = deferred("optim.lr")
+        assert "resolved" in repr(d)
+        with pytest.raises(RuntimeError, match="resolved"):
             float(d)
-        with pytest.raises(RuntimeError, match="resolve_options"):
+        with pytest.raises(RuntimeError, match="resolved"):
             d.batch_size
         # Dunder lookups still behave, so copying and pickling protocols work.
         assert deepcopy(d).name == "optim.lr"
+
+
+class TestAnnotationDispatch:
+    """`cfg: LoaderSection = deferred("data")` -- the annotation decides whether
+    the lookup is a whole section or a single option."""
+
+    def test_dataclass_annotation_fetches_the_section(self):
+        set_config(RootSection())
+
+        @resolved
+        def scene(cfg: LoaderSection = deferred("data")):
+            return cfg
+
+        assert scene() is get_config().data
+        clear_config()
+
+    def test_scalar_annotation_fetches_one_option_and_coerces_it(self):
+        set_config({"data": {"batch_size": "16"}})
+
+        @resolved
+        def scene(size: int = deferred("data.batch_size")):
+            return size
+
+        assert scene() == 16  # int, not "16"
+        clear_config()
+
+    def test_unannotated_parameter_still_fetches_an_option(self):
+        set_config(RootSection())
+
+        @resolved
+        def scene(name=deferred("name")):
+            return name
+
+        assert scene() == "run"
+        clear_config()
+
+    def test_name_defaults_to_the_parameter_name(self):
+        set_config(RootSection())
+
+        @resolved
+        def scene(data: LoaderSection = deferred(), name: str = deferred()):
+            return data, name
+
+        section_value, name = scene()
+        assert section_value is get_config().data
+        assert name == "run"
+        clear_config()
+
+    def test_optional_annotation_is_unwrapped(self):
+        set_config(RootSection())
+
+        @resolved
+        def scene(cfg: Optional[LoaderSection] = deferred("data")):
+            return cfg
+
+        assert scene() is get_config().data
+        clear_config()
+
+    def test_explicit_deferred_section_beats_the_annotation(self):
+        set_config({"data": {"batch_size": 8}})
+
+        @resolved
+        def scene(cfg: InnerSection = deferred_section("data", LoaderSection)):
+            return cfg
+
+        assert scene() == LoaderSection(batch_size=8)
+        clear_config()
+
+    def test_a_dataclass_annotation_reports_a_missing_section(self):
+        set_config({"other": 1})
+
+        @resolved
+        def scene(cfg: LoaderSection = deferred("data")):
+            return cfg
+
+        with pytest.raises(KeyError, match="not set"):
+            scene()
+        clear_config()
+
+    def test_unnamed_deferred_outside_a_resolved_function(self):
+        with pytest.raises(RuntimeError, match="@resolved"):
+            deferred().resolve()
+
+    def test_string_annotations_are_resolved(self):
+        """PEP 563 / quoted annotations must still name the section class."""
+        set_config(RootSection())
+
+        @resolved
+        def scene(cfg: "LoaderSection" = deferred("data")):
+            return cfg
+
+        assert scene() is get_config().data
+        clear_config()
+
+
+# ---------------------------------------------------------------------------
+# Overrides are re-validated
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RvInner:
+    mode: str = "a"
+
+    def __post_init__(self):
+        self.mode = self.mode.lower()
+        if self.mode not in ("a", "b"):
+            raise ValueError(f"mode must be a|b, got {self.mode!r}")
+
+
+@dataclass
+class RvRoot:
+    inner: RvInner = field(default_factory=RvInner)
+    total: int = 1
+
+    def __post_init__(self):
+        if self.total < 1:
+            raise ValueError("total must be >= 1")
+
+
+class TestOverrideRevalidation:
+    """set_path assigns straight to the attribute, so a config's own checks
+    would otherwise be skipped for exactly the values that come from
+    untrusted input -- a file or a command line."""
+
+    def test_a_bad_nested_value_is_rejected(self):
+        with pytest.raises(ValueError, match="mode must be a|b"):
+            load_config(RvRoot, {}, overrides=["inner.mode=nope"])
+
+    def test_a_bad_root_value_is_rejected(self):
+        with pytest.raises(ValueError, match="total must be >= 1"):
+            load_config(RvRoot, {}, overrides=["total=0"])
+
+    def test_a_good_value_passes_and_is_normalised(self):
+        cfg = load_config(RvRoot, {}, overrides=["inner.mode=B"])
+        assert cfg.inner.mode == "b", "__post_init__ ran, so it was lower-cased"
+        clear_config()
+
+    def test_untouched_sections_are_not_re_run(self):
+        """Only the containers an override touched get replayed."""
+        seen = []
+
+        @dataclass
+        class Counts:
+            value: int = 0
+
+            def __post_init__(self):
+                seen.append(self.value)
+
+        @dataclass
+        class Pair:
+            touched: Counts = field(default_factory=Counts)
+            untouched: Counts = field(default_factory=Counts)
+
+        seen.clear()
+        load_config(Pair, {}, overrides=["touched.value=5"])
+        # both constructed at 0, then `touched` alone replayed at its new value
+        assert seen == [0, 0, 5], seen
+        clear_config()
+
+    def test_set_path_alone_still_does_not_validate(self):
+        """The raw setter stays raw: a caller poking one value programmatically
+        is not untrusted input."""
+        cfg = RvRoot()
+        set_path(cfg, "inner.mode", "nope")
+        assert cfg.inner.mode == "nope"
+
+    def test_revalidate_can_be_called_directly(self):
+        cfg = RvRoot()
+        set_path(cfg, "inner.mode", "nope")
+        with pytest.raises(ValueError, match="mode must be a|b"):
+            revalidate(cfg, ["inner.mode"])
+
+    def test_post_init_with_initvars_is_left_alone(self):
+        """It cannot be replayed without its InitVar arguments, so it is not."""
+        from dataclasses import InitVar
+
+        @dataclass
+        class WithInitVar:
+            value: int = 1
+            seed: InitVar[int] = 0
+
+            def __post_init__(self, seed):
+                self.value += seed
+
+        cfg = load_config(WithInitVar, {}, overrides=["value=5"])
+        assert cfg.value == 5, "not re-run, so not incremented twice"
+        clear_config()
