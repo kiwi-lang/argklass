@@ -1,8 +1,14 @@
 """Tests for argklass.sysconfig."""
 
+import asyncio
+import contextvars
 import json
 import os
+import threading
+from copy import deepcopy
 from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -14,24 +20,39 @@ from argklass.sysconfig import (
     _select,
     apply_config,
     as_environment_variable,
+    clear_config,
     config_fields,
     config_template,
     configfield,
+    defer,
+    defer_section,
     env_template,
+    field_type,
     from_dict,
     get_config,
+    get_path,
     load_and_apply,
     load_config,
     option,
+    overlay,
     overrides_snapshot,
+    parse_overrides,
+    parse_scalar,
+    push_config,
+    register_root,
+    reset_config,
+    resolve_options,
     save_config,
+    section,
     set_config,
     set_env_prefix,
+    set_option,
+    set_path,
     show_config,
     to_dict,
     tracked_options,
+    use_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -455,7 +476,8 @@ class TestConfigContext:
             assert ctx.option("b", int) == 3
 
         assert ctx.option("a", int) == 1
-        assert ctx.option("b", int) is None
+        with pytest.raises(KeyError):
+            ctx.option("b", int)
 
     def test_context_does_not_affect_default(self):
         ctx = ConfigContext(prefix="OTHER")
@@ -553,13 +575,19 @@ class TestOptionEdgeCases:
         set_config({"a": "scalar"})
         assert option("a.b", str, "fallback") == "fallback"
 
-    def test_invalid_type_coercion_returns_none(self):
+    def test_invalid_type_coercion_raises(self):
+        """A value that cannot be read as the declared type is an error,
+        not a silent None -- it is a mistake in the config file."""
         set_config({"val": "not_a_number"})
-        assert option("val", int, None) is None
+        with pytest.raises(ValueError, match="cannot read 'not_a_number' as int"):
+            option("val", int, None)
 
-    def test_invalid_env_coercion_returns_none(self, monkeypatch):
+    def test_invalid_env_coercion_raises(self, monkeypatch):
+        """Same for a malformed environment variable: report it rather than
+        falling back to the default and hiding the typo."""
         monkeypatch.setenv("BAD_INT", "xyz")
-        assert option("bad.int", int, 42) == 42
+        with pytest.raises(ValueError, match="BAD_INT"):
+            option("bad.int", int, 42)
 
     def test_bool_string_variants(self):
         for truthy in ("1", "true", "True", "TRUE", "yes", "YES", "on", "ON"):
@@ -728,16 +756,16 @@ class TestSerializationEdgeCases:
         assert cfg.alpha == 1
         assert cfg.beta == "hello"
 
-    def test_from_dict_wrong_value_types(self):
-        """from_dict passes values as-is; the dataclass __init__ may coerce or fail."""
+    def test_from_dict_coerces_to_the_declared_type(self):
+        """A YAML/JSON scalar is coerced to the field's annotation."""
         cfg = from_dict(Flat, {"alpha": "123"})
-        assert cfg.alpha == "123"
+        assert cfg.alpha == 123
 
     def test_from_dict_nested_non_dict_for_dataclass_field(self):
-        """If a dataclass field gets a non-dict value, pass it through raw."""
+        """A dataclass field needs a mapping; anything else names the field."""
         data = {"debug": False, "workers": 2, "db": "not_a_dict"}
-        cfg = from_dict(ServerConfig, data)
-        assert cfg.db == "not_a_dict"
+        with pytest.raises(TypeError, match="db: expected a mapping for DBConfig"):
+            from_dict(ServerConfig, data)
 
     def test_round_trip_preserves_dict_field(self):
         @dataclass
@@ -916,7 +944,8 @@ class TestConfigContextEdgeCases:
         ctx.set_config({"a": 1})
         assert ctx.option("a", int) == 1
         ctx.set_config(None)
-        assert ctx.option("a", int) is None
+        with pytest.raises(KeyError):
+            ctx.option("a", int)
 
     def test_apply_config_exception_safety(self):
         ctx = ConfigContext()
@@ -1084,3 +1113,632 @@ class TestCoverageGaps:
         out = capsys.readouterr().out
         assert "server:" in out
         assert "host" in out
+
+
+# ===========================================================================
+# Instance-first configuration
+#
+# The active config can be a dataclass instance, not just a dict: option()
+# then reads the live object, loading coerces to the declared types, and an
+# unknown key in a file is an error.
+# ===========================================================================
+
+
+class Backend(str, Enum):
+    PYTORCH3D = "pytorch3d"
+    GODOT = "godot"
+
+
+@dataclass
+class OptimConfig:
+    lr: float = 3e-4
+    momentum: float = 0.9
+
+
+@dataclass
+class LoggingConfig:
+    output_dir: Path = Path("runs")
+    metrics_db: Optional[Path] = None
+    tags: tuple = ()
+
+
+@dataclass
+class DemoConfig:
+    device: str = "cuda"
+    steps: int = 1000
+    amp: bool = True
+    backend: Backend = Backend.PYTORCH3D
+    # String annotations, as PEP 563 produces for every annotation in a module
+    # using `from __future__ import annotations`.
+    optim: "OptimConfig" = field(default_factory=OptimConfig)
+    logging: "LoggingConfig" = field(default_factory=LoggingConfig)
+
+
+def write_yaml(tmp_path, text, name="demo.yaml"):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+@pytest.fixture
+def demo(tmp_path):
+    """A loaded-and-activated DemoConfig, cleaned up afterwards."""
+    cfg = load_and_apply(write_yaml(tmp_path, "steps: 50\n"), cls=DemoConfig)
+    yield cfg
+    clear_config()
+
+
+class TestTypeCoercion:
+    def test_load_hydrates_nested_dataclasses_and_types(self, tmp_path):
+        path = write_yaml(
+            tmp_path,
+            """
+            device: cpu
+            steps: 50
+            backend: godot
+            optim:
+              lr: 1e-3
+            logging:
+              output_dir: out/run1
+              tags: [a, b]
+            """,
+        )
+        cfg = load_config(DemoConfig, path)
+
+        assert cfg.device == "cpu"
+        assert cfg.steps == 50
+        assert cfg.backend is Backend.GODOT
+        assert isinstance(cfg.optim, OptimConfig)
+        assert cfg.optim.lr == pytest.approx(1e-3)
+        assert cfg.optim.momentum == 0.9  # untouched default
+        assert cfg.logging.output_dir == Path("out/run1")
+        assert cfg.logging.tags == ("a", "b")
+        assert cfg.logging.metrics_db is None
+
+    def test_optional_field_takes_a_value(self, tmp_path):
+        cfg = load_config(
+            DemoConfig, write_yaml(tmp_path, "logging:\n  metrics_db: m.db\n")
+        )
+        assert cfg.logging.metrics_db == Path("m.db")
+
+    def test_bool_from_string(self, tmp_path):
+        assert (
+            load_config(DemoConfig, write_yaml(tmp_path, 'amp: "false"\n')).amp is False
+        )
+
+    def test_field_type_walks_dotted_names(self):
+        assert field_type(DemoConfig, "optim.lr") is float
+        assert field_type(DemoConfig, "steps") is int
+        assert field_type(DemoConfig, "optim.nope") is None
+        assert field_type(DemoConfig, "device.nope") is None
+
+
+class TestStrictLoading:
+    def test_unknown_key_names_the_file(self, tmp_path):
+        path = write_yaml(tmp_path, "stpes: 10\n")
+        with pytest.raises(ValueError) as err:
+            load_config(DemoConfig, path)
+        assert "stpes" in str(err.value)
+        assert path in str(err.value)
+
+    def test_unknown_nested_key_names_its_path(self, tmp_path):
+        path = write_yaml(tmp_path, "optim:\n  learning_rate: 0.1\n")
+        with pytest.raises(ValueError) as err:
+            load_config(DemoConfig, path)
+        assert "optim" in str(err.value)
+        assert "learning_rate" in str(err.value)
+
+    def test_strict_false_ignores_unknown_keys(self, tmp_path):
+        path = write_yaml(tmp_path, "nope: 1\nsteps: 4\n")
+        assert load_config(DemoConfig, path, strict=False).steps == 4
+
+    def test_from_dict_is_lenient_by_default(self):
+        """The raw dict primitive stays permissive; files are what get checked."""
+        assert from_dict(DemoConfig, {"nope": 1, "steps": 4}).steps == 4
+
+
+class TestInstanceConfig:
+    def test_option_reads_the_live_instance(self, demo):
+        assert option("steps") == 50
+        assert option("optim.lr") == pytest.approx(3e-4)
+        assert option("optim") is demo.optim
+
+    def test_option_sees_mutation_after_load(self, demo):
+        demo.steps = 999
+        assert option("steps") == 999
+
+    def test_option_default_only_for_missing_keys(self, demo):
+        assert option("steps", 111) == 50
+        assert option("optim.nesterov", False) is False
+        assert option("optim.nesterov", None) is None
+
+    def test_option_without_default_raises_on_typo(self, demo):
+        with pytest.raises(KeyError):
+            option("optim.lrr")
+
+    def test_option_infers_the_type_from_annotations(self, demo, monkeypatch):
+        monkeypatch.setenv("STEPS", "77")
+        assert option("steps") == 77  # int, not "77"
+
+    def test_register_root_types_env_vars_without_an_instance(self, monkeypatch):
+        register_root(DemoConfig)
+        monkeypatch.setenv("STEPS", "5")
+        assert option("steps") == 5
+        _default_ctx._root_type = None
+
+    def test_set_option_writes_through_and_coerces(self, demo):
+        set_option("logging.output_dir", "runs/xyz")
+        assert demo.logging.output_dir == Path("runs/xyz")
+        set_option("steps", "12")
+        assert demo.steps == 12
+
+    def test_set_option_rejects_unknown_key(self, demo):
+        with pytest.raises(KeyError):
+            set_option("optim.lrr", 1.0)
+
+    def test_load_and_apply_without_cls_still_returns_a_dict(self, tmp_path):
+        data = load_and_apply(write_yaml(tmp_path, "steps: 3\n"))
+        assert data == {"steps": 3}
+        assert get_config() == {"steps": 3}
+        clear_config()
+
+    def test_overrides_applied_after_the_file(self, tmp_path):
+        path = write_yaml(tmp_path, "steps: 10\noptim:\n  lr: 0.1\n")
+        cfg = load_config(DemoConfig, path, overrides=["optim.lr=1e-5", "steps=99"])
+        assert cfg.optim.lr == pytest.approx(1e-5)
+        assert cfg.steps == 99
+
+
+class TestDottedAccess:
+    def test_get_and_set_path(self):
+        cfg = DemoConfig()
+        assert get_path(cfg, "optim.momentum") == 0.9
+        set_path(cfg, "optim.momentum", "0.5")
+        assert cfg.optim.momentum == 0.5
+        with pytest.raises(KeyError):
+            get_path(cfg, "optim.missing")
+
+    def test_get_path_works_on_dicts_too(self):
+        assert get_path({"a": {"b": 1}}, "a.b") == 1
+
+    def test_parse_scalar_reads_yaml_1_1_floats(self):
+        assert parse_scalar("1e-3") == pytest.approx(1e-3)
+        assert parse_scalar("false") is False
+        assert parse_scalar("godot") == "godot"
+
+    def test_parse_overrides(self):
+        parsed = parse_overrides(["optim.lr=1e-3", "amp=false", "taus=[1, 7.5]"])
+        assert parsed == {"optim.lr": 1e-3, "amp": False, "taus": [1, 7.5]}
+        with pytest.raises(ValueError):
+            parse_overrides(["no-equals-sign"])
+
+
+class TestScoping:
+    def test_overlay_is_scoped_and_leaves_the_original_alone(self, demo):
+        with overlay({"optim.lr": 0.9}, steps=3) as scoped:
+            assert option("optim.lr") == 0.9
+            assert option("steps") == 3
+            assert scoped is not demo
+        assert option("optim.lr") == pytest.approx(3e-4)
+        assert get_config() is demo
+
+    def test_apply_config_works_on_an_instance(self, demo):
+        with apply_config({"optim": {"lr": 0.5}}):
+            assert option("optim.lr") == 0.5
+        assert option("optim.lr") == pytest.approx(3e-4)
+        assert demo.optim.lr == pytest.approx(3e-4)
+
+    def test_use_config_restores_the_previous_config(self, demo):
+        with use_config(DemoConfig(steps=2)):
+            assert option("steps") == 2
+        assert get_config() is demo
+
+    def test_push_config_shadows_the_process_wide_one(self, demo):
+        token = push_config(DemoConfig(steps=2))
+        assert option("steps") == 2
+        reset_config(token)
+        assert get_config() is demo
+
+    def test_push_none_masks_the_process_wide_config(self, demo):
+        token = push_config(None)
+        assert get_config() == {}
+        reset_config(token)
+        assert option("steps") == 50
+
+    def test_set_config_returns_the_previous_config(self):
+        first = DemoConfig(steps=1)
+        set_config(first)
+        assert set_config(DemoConfig(steps=2)) is first
+        clear_config()
+
+    def test_root_type_follows_a_context_local_config(self, demo):
+        @dataclass
+        class Other:
+            steps: str = "text"
+
+        assert _default_ctx.root_type is DemoConfig
+        with use_config(Other()):
+            assert _default_ctx.root_type is Other
+        assert _default_ctx.root_type is DemoConfig
+
+
+class TestThreadAndTaskSafety:
+    def test_set_config_reaches_worker_threads(self, demo):
+        """A bare ContextVar would fail here: threads start with an empty context."""
+        seen = []
+        thread = threading.Thread(target=lambda: seen.append(option("steps")))
+        thread.start()
+        thread.join()
+        assert seen == [50]
+
+    def test_scoped_override_does_not_leak_to_another_thread(self, demo):
+        seen = []
+        with overlay(steps=99):
+            assert option("steps") == 99
+            thread = threading.Thread(target=lambda: seen.append(option("steps")))
+            thread.start()
+            thread.join()
+        assert seen == [50]  # the thread sees the process-wide config
+
+    def test_scoped_override_can_be_carried_into_a_thread(self, demo):
+        seen = []
+        with overlay(steps=99):
+            ctx = contextvars.copy_context()
+            thread = threading.Thread(
+                target=lambda: seen.append(ctx.run(option, "steps"))
+            )
+            thread.start()
+            thread.join()
+        assert seen == [99]
+
+    def test_concurrent_tasks_keep_their_own_overlay(self, demo):
+        async def worker(value):
+            with overlay(steps=value):
+                await asyncio.sleep(0)  # hand control to the other task mid-scope
+                return option("steps")
+
+        async def main():
+            return await asyncio.gather(worker(1), worker(2))
+
+        assert asyncio.run(main()) == [1, 2]
+        assert option("steps") == 50
+
+    def test_concurrent_tasks_keep_their_own_apply_config(self):
+        set_config({"steps": 0})
+
+        async def worker(value):
+            with apply_config({"steps": value}):
+                await asyncio.sleep(0)
+                return option("steps", int)
+
+        async def main():
+            return await asyncio.gather(worker(1), worker(2))
+
+        assert asyncio.run(main()) == [1, 2]
+        clear_config()
+
+
+class TestSerializationRoundTrip:
+    def test_to_dict_is_yaml_friendly(self):
+        cfg = DemoConfig(backend=Backend.GODOT, logging=LoggingConfig(tags=("a",)))
+        data = to_dict(cfg)
+        assert data["backend"] == "godot"
+        assert data["logging"]["output_dir"] == "runs"
+        assert data["logging"]["tags"] == ["a"]
+
+    def test_save_then_load_round_trips(self, tmp_path):
+        import yaml
+
+        cfg = DemoConfig(steps=11, backend=Backend.GODOT)
+        cfg.logging.metrics_db = Path("m.db")
+        path = str(tmp_path / "cfg.yaml")
+        save_config(cfg, path)
+
+        # Plain safe_load must read it back: no python/object tags.
+        with open(path) as fh:
+            raw = yaml.safe_load(fh)
+        assert raw["logging"]["output_dir"] == "runs"
+
+        assert load_config(DemoConfig, path) == cfg
+
+
+@dataclass
+class AnnotatedInner:
+    rate: float = configfield("inner.rate", float, 1.0)
+
+
+@dataclass
+class AnnotatedOuter:
+    flag: bool = configfield("outer.flag", bool, False)
+    inner: "AnnotatedInner" = field(default_factory=AnnotatedInner)
+
+
+class TestConfigFieldIntrospection:
+    def test_nested_dataclass_under_string_annotations(self):
+        """PEP 563 turns every annotation into a string; nested sections must
+        still be discovered."""
+        names = [name for name, _t, _d, _e in config_fields(AnnotatedOuter)]
+        assert names == ["outer.flag", "inner.rate"]
+
+    def test_configfield_without_an_explicit_type(self):
+        @dataclass
+        class Sampler:
+            batch: int = configfield("batch_size", 8)
+
+        set_config({"batch_size": 64})
+        assert Sampler().batch == 64
+        assert Sampler(batch=2).batch == 2
+        clear_config()
+
+    def test_configfield_type_and_default_cannot_both_be_positional(self):
+        with pytest.raises(TypeError):
+            configfield("x", 1, 2)
+
+
+class TestInstanceValuesAreNotRecoerced:
+    """A dict config holds raw file values, so option() coerces them. A
+    dataclass config was already coerced when it was built -- and its
+    __post_init__ may deliberately hold a different runtime type than the
+    annotation says, so option() must hand back what the instance holds."""
+
+    def test_dict_values_are_coerced(self):
+        set_config({"db": {"port": "1111"}})
+        assert option("db.port", int) == 1111
+        clear_config()
+
+    def test_instance_values_are_returned_as_held(self):
+        @dataclass
+        class Holder:
+            # __post_init__ stores a Path even though the annotation says str,
+            # the way a config that normalises its own paths would.
+            out: str = "runs"
+
+            def __post_init__(self):
+                self.out = Path(self.out)
+
+        cfg = Holder()
+        set_config(cfg)
+        assert option("out") is cfg.out
+        assert isinstance(option("out"), Path)
+        clear_config()
+
+
+# ===========================================================================
+# section() -- a whole sub-config at once
+# ===========================================================================
+
+
+@dataclass
+class InnerSection:
+    depth: int = 1
+
+
+@dataclass
+class LoaderSection:
+    batch_size: int = 4
+    workers: int = 0
+    shuffle: bool = True
+    inner: "InnerSection" = field(default_factory=InnerSection)
+
+
+@dataclass
+class RootSection:
+    name: str = "run"
+    data: "LoaderSection" = field(default_factory=LoaderSection)
+
+
+class TestSection:
+    def test_returns_the_live_instance(self):
+        cfg = RootSection()
+        set_config(cfg)
+        assert section("data") is cfg.data
+        assert section("data", LoaderSection) is cfg.data
+        clear_config()
+
+    def test_hydrates_a_dict_subtree(self):
+        set_config({"data": {"batch_size": "16", "shuffle": "false"}})
+        loaded = section("data", LoaderSection)
+        assert loaded == LoaderSection(batch_size=16, shuffle=False)
+        clear_config()
+
+    def test_dict_subtree_needs_a_class(self):
+        set_config({"data": {"batch_size": 16}})
+        with pytest.raises(TypeError, match="pass the dataclass"):
+            section("data")
+        clear_config()
+
+    def test_dict_subtree_is_strict(self):
+        set_config({"data": {"batch_sze": 16}})
+        with pytest.raises(ValueError, match="batch_sze"):
+            section("data", LoaderSection)
+        clear_config()
+
+    def test_wrong_class_is_reported(self):
+        set_config(RootSection())
+        with pytest.raises(TypeError, match="not InnerSection"):
+            section("data", InnerSection)
+        clear_config()
+
+    def test_env_overrides_the_fields_inside(self, monkeypatch):
+        cfg = RootSection()
+        set_config(cfg)
+        monkeypatch.setenv("DATA_BATCH_SIZE", "64")
+        monkeypatch.setenv("DATA_INNER_DEPTH", "3")
+
+        built = section("data")
+        assert built.batch_size == 64  # int, not "64"
+        assert built.inner.depth == 3
+        assert built.workers == 0  # untouched field kept
+
+        # Reading a section never mutates the active config.
+        assert cfg.data.batch_size == 4
+        assert built is not cfg.data
+        clear_config()
+
+    def test_env_can_be_turned_off(self, monkeypatch):
+        cfg = RootSection()
+        set_config(cfg)
+        monkeypatch.setenv("DATA_BATCH_SIZE", "64")
+        assert section("data", env=False) is cfg.data
+        clear_config()
+
+    def test_nested_dotted_name(self):
+        set_config(RootSection())
+        assert section("data.inner", InnerSection) == InnerSection(depth=1)
+        clear_config()
+
+    def test_missing_section_raises_even_with_a_class(self):
+        """A class says how to BUILD the section, not that a missing one is
+        fine -- quietly returning a default-constructed LoaderSection would
+        look config-driven while ignoring the config entirely."""
+        set_config(RootSection())
+        with pytest.raises(KeyError, match="not set"):
+            section("nope", LoaderSection)
+        clear_config()
+
+    def test_missing_section_without_a_class_raises(self):
+        set_config(RootSection())
+        with pytest.raises(KeyError):
+            section("nope")
+        clear_config()
+
+    def test_error_points_at_import_time_reads_when_nothing_is_active(self):
+        clear_config()
+        with pytest.raises(KeyError, match="no config is active yet"):
+            section("data", LoaderSection)
+        with pytest.raises(KeyError, match="no config is active yet"):
+            option("data.batch_size")
+
+    def test_default_is_returned_for_a_missing_section(self):
+        set_config(RootSection())
+        sentinel = LoaderSection(batch_size=99)
+        assert section("nope", LoaderSection, default=sentinel) is sentinel
+        clear_config()
+
+    def test_a_scalar_is_not_a_section(self):
+        set_config(RootSection())
+        with pytest.raises(TypeError, match="not a config section"):
+            section("name", LoaderSection)
+        clear_config()
+
+
+# ===========================================================================
+# Deferred defaults
+#
+# Python runs a default argument expression once, when the `def` executes --
+# at import time, before any config is loaded. defer() records the lookup so
+# @resolve_options can perform it per call instead.
+# ===========================================================================
+
+
+class TestDeferredDefaults:
+    def test_option_as_a_default_is_frozen_at_def_time(self):
+        """The problem defer() exists to solve, pinned so it stays visible."""
+        set_config({"steps": 1})
+
+        def eager(steps=option("steps", int, 0)):
+            return steps
+
+        set_config({"steps": 999})
+        assert eager() == 1  # still the import-time value, not 999
+        clear_config()
+
+    def test_defer_reads_the_config_at_call_time(self):
+        clear_config()
+
+        @resolve_options
+        def lazy(steps=defer("steps", int, 0)):
+            return steps
+
+        set_config({"steps": 1})
+        assert lazy() == 1
+        set_config({"steps": 999})
+        assert lazy() == 999
+        clear_config()
+
+    def test_defining_it_needs_no_config(self):
+        clear_config()
+
+        @resolve_options
+        def lazy(steps=defer("steps", int)):
+            return steps
+
+        # No config at definition time and no default: still fine until called.
+        with pytest.raises(KeyError):
+            lazy()
+        set_config({"steps": 7})
+        assert lazy() == 7
+        clear_config()
+
+    def test_explicit_arguments_win(self):
+        set_config({"steps": 1})
+
+        @resolve_options
+        def lazy(steps=defer("steps", int, 0)):
+            return steps
+
+        assert lazy(5) == 5
+        assert lazy(steps=6) == 6
+        clear_config()
+
+    def test_defer_section(self):
+        clear_config()
+
+        @resolve_options
+        def build(cfg=defer_section("data", LoaderSection)):
+            return cfg
+
+        set_config({"data": {"batch_size": 16}})
+        assert build() == LoaderSection(batch_size=16)
+        set_config(RootSection())
+        assert build() is get_config().data
+        clear_config()
+
+    def test_deferred_section_sees_env_overrides(self, monkeypatch):
+        set_config(RootSection())
+
+        @resolve_options
+        def build(cfg=defer_section("data")):
+            return cfg
+
+        monkeypatch.setenv("DATA_BATCH_SIZE", "64")
+        assert build().batch_size == 64
+        clear_config()
+
+    def test_other_defaults_are_untouched(self):
+        set_config({"steps": 3})
+
+        @resolve_options
+        def lazy(steps=defer("steps", int, 0), tag="plain", *, flag=False):
+            return steps, tag, flag
+
+        assert lazy() == (3, "plain", False)
+        assert lazy(tag="x", flag=True) == (3, "x", True)
+        clear_config()
+
+    def test_works_on_async_functions(self):
+        set_config({"steps": 4})
+
+        @resolve_options
+        async def lazy(steps=defer("steps", int, 0)):
+            return steps
+
+        assert asyncio.run(lazy()) == 4
+        clear_config()
+
+    def test_decorator_without_deferred_defaults_is_an_error(self):
+        with pytest.raises(TypeError, match="no defer"):
+
+            @resolve_options
+            def plain(x=1):
+                return x
+
+    def test_an_unresolved_deferred_says_what_is_missing(self):
+        d = defer("optim.lr")
+        assert "resolve_options" in repr(d)
+        with pytest.raises(RuntimeError, match="resolve_options"):
+            float(d)
+        with pytest.raises(RuntimeError, match="resolve_options"):
+            d.batch_size
+        # Dunder lookups still behave, so copying and pickling protocols work.
+        assert deepcopy(d).name == "optim.lr"
